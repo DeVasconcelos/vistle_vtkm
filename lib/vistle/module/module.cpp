@@ -16,6 +16,8 @@
 
 #include <boost/asio.hpp>
 
+#include <nvtx3/nvtx3.hpp>
+
 #include <vistle/util/sysdep.h>
 #include <vistle/util/tools.h>
 #include <vistle/util/stopwatch.h>
@@ -952,6 +954,8 @@ void Module::waitAllTasks()
 
 void Module::updateMeta(vistle::Object::ptr obj) const
 {
+    NVTX3_FUNC_RANGE();
+    
     if (obj) {
         obj->setCreator(id());
         obj->setExecutionCounter(m_executionCount);

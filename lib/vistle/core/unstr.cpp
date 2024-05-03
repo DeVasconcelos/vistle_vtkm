@@ -41,6 +41,8 @@ bool UnstructuredGrid::isEmpty() const
 
 bool UnstructuredGrid::checkImpl(std::ostream &os, bool quick) const
 {
+    NVTX3_FUNC_RANGE();
+
     VALIDATE_INDEX(d()->tl->size());
 
     VALIDATE(d()->tl->check(os));
