@@ -161,7 +161,7 @@ bool ClipVtkm::changeParameter(const Parameter *param)
 bool ClipVtkm::compute(const std::shared_ptr<vistle::BlockTask> &task) const
 {
     NVTX3_FUNC_RANGE();
-    
+
     // make sure input data is supported
     auto isoData = task->expect<Object>("grid_in");
     if (!isoData) {
@@ -204,7 +204,11 @@ bool ClipVtkm::compute(const std::shared_ptr<vistle::BlockTask> &task) const
     }
     isosurfaceFilter.SetImplicitFunction(isocontrol.func());
     isosurfaceFilter.SetInvertClip(isocontrol.flip());
-    auto isosurface = isosurfaceFilter.Execute(vtkmDataSet);
+    vtkm::cont::DataSet isosurface;
+    {
+        nvtx3::scoped_range filterExec("vtkm-filter");
+        isosurface = isosurfaceFilter.Execute(vtkmDataSet);
+    }
 
     // transform result back into vistle format
     Object::ptr geoOut = vtkmGetGeometry(isosurface);

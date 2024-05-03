@@ -191,6 +191,7 @@ int IsoSurfaceVtkm::BlockData::getTimestep() const
 Object::ptr IsoSurfaceVtkm::work(vistle::Object::const_ptr grid, vistle::DataBase::const_ptr isoField,
                                  vistle::DataBase::const_ptr mapField, Scalar isoValue) const
 {
+    NVTX3_FUNC_RANGE();
     if (auto scal = Vec<Scalar>::as(isoField)) {
         auto minmax = scal->getMinMax();
         std::lock_guard<std::mutex> guard(m_mutex);
@@ -239,7 +240,11 @@ Object::ptr IsoSurfaceVtkm::work(vistle::Object::const_ptr grid, vistle::DataBas
     isosurfaceFilter.SetIsoValue(isoValue);
     isosurfaceFilter.SetMergeDuplicatePoints(false);
     isosurfaceFilter.SetGenerateNormals(m_computeNormals->getValue() != 0);
-    auto isosurface = isosurfaceFilter.Execute(vtkmDataSet);
+    vtkm::cont::DataSet isosurface;
+    {
+        nvtx3::scoped_range filterExec("vtkm-filter");
+        isosurface = isosurfaceFilter.Execute(vtkmDataSet);
+    }
 
 
     // transform result back into vistle format
@@ -275,7 +280,7 @@ Object::ptr IsoSurfaceVtkm::work(vistle::Object::const_ptr grid, vistle::DataBas
 bool IsoSurfaceVtkm::compute(const std::shared_ptr<vistle::BlockTask> &task) const
 {
     NVTX3_FUNC_RANGE();
-    
+
     // make sure input data is supported
     auto isoData = task->expect<Vec<Scalar>>("data_in");
     if (!isoData) {

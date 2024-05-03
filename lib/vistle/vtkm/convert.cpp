@@ -1,3 +1,5 @@
+#include <nvtx3/nvtx3.hpp>
+
 #include <vtkm/cont/ArrayCopy.h>
 #include <vtkm/cont/ArrayExtractComponent.h>
 #include <vtkm/cont/ArrayHandleExtractComponent.h>
@@ -26,6 +28,7 @@ namespace vistle {
 
 VtkmTransformStatus vtkmSetGrid(vtkm::cont::DataSet &vtkmDataset, vistle::Object::const_ptr grid)
 {
+    nvtx3::scoped_range range("grid to vtk-m");
     if (auto coords = Coords::as(grid)) {
         auto xCoords = coords->x();
         auto yCoords = coords->y();
@@ -264,6 +267,7 @@ struct AddField {
 VtkmTransformStatus vtkmAddField(vtkm::cont::DataSet &vtkmDataSet, const vistle::DataBase::const_ptr &field,
                                  const std::string &name, vistle::DataBase::Mapping mapping)
 {
+    nvtx3::scoped_range range("field to vtk-m");
     bool handled = false;
     boost::mpl::for_each<Scalars>(AddField(vtkmDataSet, field, name, mapping, handled));
     if (handled)
@@ -275,6 +279,7 @@ VtkmTransformStatus vtkmAddField(vtkm::cont::DataSet &vtkmDataSet, const vistle:
 
 Object::ptr vtkmGetGeometry(vtkm::cont::DataSet &dataset)
 {
+    nvtx3::scoped_range range("grid to vistle");
     Object::ptr result;
 
     // get vertices that make up the dataset grid
@@ -548,6 +553,7 @@ struct GetArrayContents {
 
 vistle::DataBase::ptr vtkmGetField(const vtkm::cont::DataSet &vtkmDataSet, const std::string &name)
 {
+    nvtx3::scoped_range range("field to vistle");
     vistle::DataBase::ptr result;
     if (!vtkmDataSet.HasField(name))
         return result;

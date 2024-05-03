@@ -27,6 +27,7 @@ bool Indexed::isEmpty() const
 
 bool Indexed::checkImpl(std::ostream &os, bool quick) const
 {
+    NVTX3_FUNC_RANGE();
     VALIDATE_INDEX(d()->cl->size());
     VALIDATE_INDEX(d()->el->size());
     VALIDATE_INDEX(d()->ghost->size());
