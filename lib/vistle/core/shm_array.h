@@ -15,6 +15,8 @@
 #include "scalars.h"
 #include "celltreenode_decl.h"
 
+#include <nvtx3/nvtx3.hpp>
+
 #include <vtkm/cont/ArrayHandle.h>
 #include <vtkm/cont/ArrayHandleBasic.h>
 #include <vtkm/cont/UnknownArrayHandle.h>
@@ -208,6 +210,7 @@ private:
 template<typename T, class allocator>
 void shm_array<T, allocator>::updateFromHandle() const
 {
+    //NVTX3_FUNC_RANGE();
 #ifdef NO_SHMEM
     if (m_memoryValid)
         return;

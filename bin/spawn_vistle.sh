@@ -10,6 +10,23 @@
 
 #APRUN_FLAGS="-j2 -cc 0-11,24-35:12-23,36-47" # enable hyper-threading
 
+# ----- NVIDIA GPU PROFILING -----
+
+# NOTE: When calling nsys from a bash script, it's best to add its entire path (as there could
+#       be multiple nsys-versions on a system which thens leads to errors), see:
+#       https://forums.developer.nvidia.com/t/nsight-system-runtime-error-and-reported-quaddcommon-notfoundexception/193964/9
+NSYS_BIN="$HOME/Software/nsight/pkg/nvidia-nsight/opt/nvidia/nsight-systems/2023.4.1/bin/nsys"
+PROFILER_INVOCATION="$NSYS_BIN profile --gpu-metrics-device=all -o $(basename -- $1)-$$ --trace=cuda,nvtx"
+
+# TO PREPARE: - make sure you have the permission to access the NVIDIA GPU Performance Counters on the system
+#               you want to use the ncu profiler. Check here how to enable it (temporarily or permanently):
+#               https://developer.nvidia.com/ERR_NVGPUCTRPERM
+#
+#             - to enable the "Source" view in ncu's "Source" page, recompile vistle with NVCC_PREPEND_FLAGS="-lineinfo"
+#PROFILER_INVOCATION="ncu -o $(basename -- $1)-$$ --set full --import-source yes"
+
+# ----- NVIDIA GPU PROFILING -----
+
 # environment variables to copy to all ranks
 envvars="PATH"
 envvars="$envvars PYTHONHOME PYTHONPATH"
@@ -89,7 +106,7 @@ esac
 
 WRAPPER="valgrind --track-origins=yes --read-var-info=yes --read-inline-info=yes --error-limit=no"
 WRAPPER="valgrind --max-threads=1024"
-WRAPPER=""
+WRAPPER="$PROFILER_INVOCATION"
 LAUNCH=""
 export TSAN_OPTIONS="history_size=7 force_seq_cst_atomics=1 second_deadlock_stack=1"
 

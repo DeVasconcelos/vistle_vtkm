@@ -8,4 +8,5 @@ if(VTKm_ENABLE_CUDA)
 endif()
 
 add_module(IsoSurfaceVtkm "extract surfaces with constant data level" ${HEADER} ${SOURCES})
-target_link_libraries(IsoSurfaceVtkm vistle_vtkm vtkm::cont vtkm::filter)
+
+target_link_libraries(IsoSurfaceVtkm vistle_vtkm vtkm::cont vtkm::filter nvtx3-cpp)

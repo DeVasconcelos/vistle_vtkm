@@ -75,3 +75,6 @@
 [submodule "lib/3rdparty/mpi-serial"]
 	path = lib/3rdparty/mpi-serial
 	url = https://github.com/vistle/mpi-serial.git
+[submodule "lib/3rdparty/NVTX"]
+	path = lib/3rdparty/NVTX
+	url = https://github.com/NVIDIA/NVTX.git

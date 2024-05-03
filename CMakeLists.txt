@@ -1158,6 +1158,9 @@ set(LIBRARY_OUTPUT_PATH ${PROJECT_BINARY_DIR}/lib)
 set(EXECUTABLE_OUTPUT_PATH ${PROJECT_BINARY_DIR}/bin)
 set(COVISEDESTDIR ${PROJECT_BINARY_DIR})
 
+# for NVIDIA profiling
+include(lib/3rdparty/NVTX/c/nvtxImportedTargets.cmake)
+
 add_subdirectory(lib)
 add_subdirectory(module)
 add_subdirectory(app) # has to come after module subdirectory for static module registration

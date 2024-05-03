@@ -1,3 +1,5 @@
+#include <nvtx3/nvtx3.hpp>
+
 #include <vistle/alg/objalg.h>
 #include <vistle/core/triangles.h>
 #include <vistle/core/unstr.h>
@@ -158,6 +160,8 @@ bool ClipVtkm::changeParameter(const Parameter *param)
 
 bool ClipVtkm::compute(const std::shared_ptr<vistle::BlockTask> &task) const
 {
+    NVTX3_FUNC_RANGE();
+    
     // make sure input data is supported
     auto isoData = task->expect<Object>("grid_in");
     if (!isoData) {

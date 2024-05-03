@@ -179,6 +179,7 @@ if(WIN32)
     target_link_libraries(vistle_core PUBLIC bcrypt.lib)
 endif()
 
+
 vistle_target_link_libraries(
     vistle_core
     PRIVATE
@@ -194,6 +195,9 @@ vistle_target_link_libraries(
     PUBLIC
     vtkm::cont)
 target_link_libraries(vistle_core PRIVATE vistle_config)
+
+# for NVIDIA profiling
+target_link_libraries(vistle_core PUBLIC nvtx3-cpp)
 
 if(ZFP_FOUND)
     target_compile_definitions(vistle_core PRIVATE HAVE_ZFP)

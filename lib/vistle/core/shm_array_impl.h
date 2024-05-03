@@ -1,6 +1,8 @@
 #ifndef SHM_ARRAY_IMPL_H
 #define SHM_ARRAY_IMPL_H
 
+#include "nvtx3/nvtx3.hpp"
+
 #include <cassert>
 #include <atomic>
 #include <cstring>
@@ -299,6 +301,8 @@ void shm_array<T, allocator>::invalidate_bounds()
 template<typename T, class allocator>
 void shm_array<T, allocator>::update_bounds()
 {
+    NVTX3_FUNC_RANGE();
+    
     invalidate_bounds();
     updateFromHandle();
 
