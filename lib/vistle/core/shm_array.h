@@ -210,7 +210,7 @@ private:
 template<typename T, class allocator>
 void shm_array<T, allocator>::updateFromHandle() const
 {
-    //NVTX3_FUNC_RANGE();
+    
 #ifdef NO_SHMEM
     if (m_memoryValid)
         return;
@@ -219,12 +219,14 @@ void shm_array<T, allocator>::updateFromHandle() const
         return;
     m_memoryValid = true;
 
+    nvtxRangePush("if in updateFromHandle()");
     if (m_unknown.CanConvert<vtkm::cont::ArrayHandleBasic<handle_type>>()) {
         m_handle = m_unknown.AsArrayHandle<vtkm::cont::ArrayHandleBasic<handle_type>>();
     } else {
         vtkm::cont::ArrayCopy(m_unknown, m_handle);
     }
     m_data = reinterpret_cast<T *>(m_handle.GetWritePointer());
+    nvtxRangePop();
 #endif
 }
 
