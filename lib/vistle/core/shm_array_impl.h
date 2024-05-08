@@ -305,6 +305,7 @@ void shm_array<T, allocator>::update_bounds()
     NVTX3_FUNC_RANGE();
     
     invalidate_bounds();
+    updateFromHandle();
 #ifdef NO_SHMEM
     vtkm::cont::ArrayHandle<vtkm::Range> rangeArray = vtkm::cont::ArrayRangeCompute(handle());
     auto rangePortal = rangeArray.ReadPortal();
