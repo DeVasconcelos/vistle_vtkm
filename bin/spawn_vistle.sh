@@ -15,7 +15,8 @@
 # NOTE: When calling nsys from a bash script, it's best to add its entire path (as there could
 #       be multiple nsys-versions on a system which thens leads to errors), see:
 #       https://forums.developer.nvidia.com/t/nsight-system-runtime-error-and-reported-quaddcommon-notfoundexception/193964/9
-PROFILER_INVOCATION="$(which nsys) profile --gpu-metrics-device=all -o $(basename -- $1)-$$ --trace=cuda,nvtx"
+NSYS_BIN="$HOME/Software/nsight/pkg/nvidia-nsight/opt/nvidia/nsight-systems/2023.4.1/bin/nsys"
+PROFILER_INVOCATION="$NSYS_BIN profile --gpu-metrics-device=all -o $(basename -- $1)-$$ --trace=cuda,nvtx"
 
 # TO PREPARE: - make sure you have the permission to access the NVIDIA GPU Performance Counters on the system
 #               you want to use the ncu profiler. Check here how to enable it (temporarily or permanently):
