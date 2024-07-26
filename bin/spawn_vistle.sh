@@ -15,15 +15,15 @@
 # NOTE: When calling nsys from a bash script, it's best to add its entire path (as there could
 #       be multiple nsys-versions on a system which thens leads to errors), see:
 #       https://forums.developer.nvidia.com/t/nsight-system-runtime-error-and-reported-quaddcommon-notfoundexception/193964/9
-NSYS_BIN="$HOME/Software/nsight/pkg/nvidia-nsight/opt/nvidia/nsight-systems/2023.4.1/bin/nsys"
-PROFILER_INVOCATION="$NSYS_BIN profile --gpu-metrics-device=all -o $(basename -- $1)-$$ --trace=cuda,nvtx"
+#NSYS_BIN="$HOME/Software/nsight/pkg/nvidia-nsight/opt/nvidia/nsight-systems/2023.4.1/bin/nsys"
+#PROFILER_INVOCATION="$NSYS_BIN profile --gpu-metrics-device=all -o $(basename -- $1)-$$ --trace=cuda,nvtx"
 
 # TO PREPARE: - make sure you have the permission to access the NVIDIA GPU Performance Counters on the system
 #               you want to use the ncu profiler. Check here how to enable it (temporarily or permanently):
 #               https://developer.nvidia.com/ERR_NVGPUCTRPERM
 #
 #             - to enable the "Source" view in ncu's "Source" page, recompile vistle with NVCC_PREPEND_FLAGS="-lineinfo"
-#PROFILER_INVOCATION="ncu -o $(basename -- $1)-$$ --set full --import-source yes"
+PROFILER_INVOCATION="ncu -o $(basename -- $1)-$$ --set basic --section WarpStateStats --section SourceCounters --import-source yes"
 
 # ----- NVIDIA GPU PROFILING -----
 
