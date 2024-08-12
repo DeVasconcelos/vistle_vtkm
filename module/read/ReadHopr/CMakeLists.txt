@@ -1,0 +1,1 @@
+add_module(ReadHopr "read HOPR HDF5 data" ReadHopr.h ReadHopr.cpp)
