@@ -12,6 +12,10 @@ public:
     bool read(vistle::Reader::Token &token, int timestep = -1, int block = -1) override;
     bool prepareRead() override;
     bool finishRead() override;
+
+private:
+    vistle::StringParameter *m_meshFile;
+    vistle::StringParameter *m_stateFile;
 };
 
 #endif //READHOPR_H
