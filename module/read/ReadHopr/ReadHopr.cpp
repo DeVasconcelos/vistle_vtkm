@@ -1,3 +1,6 @@
+#include <hdf5.h>
+#include <string>
+
 #include "ReadHopr.h"
 
 MODULE_MAIN(ReadHopr)
@@ -28,6 +31,24 @@ bool ReadHopr::examine(const vistle::Parameter *param)
 }
 bool ReadHopr::read(vistle::Reader::Token &token, int timestep, int block)
 {
+    // ---- READ IN MESH FILE ----
+    auto h5Mesh = H5Fopen(m_meshFile->getValue().c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
+
+    // contains element type + list
+    auto elemInfoId = H5Dopen(h5Mesh, "ElemInfo", H5P_DEFAULT);
+    H5Dclose(elemInfoId);
+
+    // contains coordinates stored per element, i.e., connectivity list is implied
+    auto nodeCoordsId = H5Dopen(h5Mesh, "NodeCoords", H5P_DEFAULT);
+    H5Dclose(nodeCoordsId);
+
+    H5Fclose(h5Mesh);
+
+    // ---- READ IN STATE FILE ----
+    auto h5State = H5Fopen(m_stateFile->getValue().c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
+
+    H5Fclose(h5State);
+    
     return true;
 }
 bool ReadHopr::prepareRead()
