@@ -21,6 +21,8 @@ ReadHopr::ReadHopr(const std::string &name, int moduleID, mpi::communicator comm
     setParameterFilters(m_meshFile, hoprFormat);
     setParameterFilters(m_stateFile, hoprFormat);
 
+    m_gridOut = createOutputPort("grid_out", "grid");
+
     observeParameter(m_meshFile);
     observeParameter(m_stateFile);
 }
@@ -79,9 +81,9 @@ bool ReadHopr::read(vistle::Reader::Token &token, int timestep, int block)
 
         for (hsize_t i = 0; i < total_size; i += 6) {
             result->tl().push_back(elemInfo[i]);
-            result->el().push_back(elemInfo[i + 4]);
+            if (i > 0)
+                result->el().push_back(elemInfo[i + 4]);
         }
-
     } else {
         sendError("ElemInfo data type is not supported!");
     }
@@ -107,11 +109,14 @@ bool ReadHopr::read(vistle::Reader::Token &token, int timestep, int block)
         std::vector<double> nodeCoords(total_size);
         H5Dread(nodeCoords_DId, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, nodeCoords.data());
 
+        auto counter = 0;
         for (hsize_t i = 0; i < total_size; i += 3) {
             result->x().push_back(nodeCoords[i]);
             result->y().push_back(nodeCoords[i + 1]);
             result->z().push_back(nodeCoords[i + 2]);
+            result->cl().push_back(counter++);
         }
+        result->el().push_back(nodeCoordsDim[0]);
     } else {
         sendError("NodeCoords datatype is not supported!");
     }
@@ -126,6 +131,9 @@ bool ReadHopr::read(vistle::Reader::Token &token, int timestep, int block)
     auto h5State = H5Fopen(m_stateFile->getValue().c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
 
     H5Fclose(h5State);
+
+    updateMeta(result);
+    addObject(m_gridOut, result);
 
     return true;
 }

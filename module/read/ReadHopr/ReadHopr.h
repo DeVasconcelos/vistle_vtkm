@@ -14,6 +14,8 @@ public:
     bool finishRead() override;
 
 private:
+    vistle::Port *m_gridOut;
+
     vistle::StringParameter *m_meshFile;
     vistle::StringParameter *m_stateFile;
 };
