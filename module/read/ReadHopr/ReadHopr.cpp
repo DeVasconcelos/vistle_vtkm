@@ -71,6 +71,7 @@ bool ReadHopr::read(vistle::Reader::Token &token, int timestep, int block)
 
     auto elemInfo_TId = H5Dget_type(elemInfo_DId);
     if (H5Tequal(elemInfo_TId, H5T_NATIVE_INT)) {
+        // FIXME: make sure this vector is of the same datatype as used in the .h5 file
         std::vector<int> elemInfo(total_size);
         H5Dread(elemInfo_DId, H5T_NATIVE_INT, H5S_ALL, H5S_ALL, H5P_DEFAULT, elemInfo.data());
 
@@ -84,7 +85,7 @@ bool ReadHopr::read(vistle::Reader::Token &token, int timestep, int block)
             counter++;
         }
     } else {
-        sendError("Encountered unsupported data type in .h5 dataset");
+        sendError("ElemInfo data type is not supported!");
     }
 
     H5Tclose(elemInfo_TId);
@@ -92,8 +93,44 @@ bool ReadHopr::read(vistle::Reader::Token &token, int timestep, int block)
     H5Dclose(elemInfo_DId);
 
     // contains coordinates stored per element, i.e., connectivity list is implied
-    auto nodeCoordsId = H5Dopen(h5Mesh, "NodeCoords", H5P_DEFAULT);
-    H5Dclose(nodeCoordsId);
+    auto nodeCoords_DId = H5Dopen(h5Mesh, "NodeCoords", H5P_DEFAULT);
+    auto nodeCoords_SId = H5Dget_space(nodeCoords_DId);
+    std::vector<hsize_t> nodeCoordsDim(H5Sget_simple_extent_ndims(nodeCoords_SId));
+    H5Sget_simple_extent_dims(nodeCoords_SId, nodeCoordsDim.data(), nullptr);
+
+    total_size = 1;
+    for (hsize_t dim: nodeCoordsDim) {
+        total_size *= dim;
+    }
+
+    auto nodeCoords_TId = H5Dget_type(nodeCoords_DId);
+    if (H5Tequal(nodeCoords_TId, H5T_NATIVE_DOUBLE)) {
+        // FIXME: make sure this vector is of the same datatype as used in the .h5 file
+        std::vector<double> nodeCoords(total_size);
+        H5Dread(nodeCoords_DId, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, nodeCoords.data());
+
+        std::vector<double> x(nodeCoordsDim[0]);
+        std::vector<double> y(nodeCoordsDim[0]);
+        std::vector<double> z(nodeCoordsDim[0]);
+
+        size_t counter = 0;
+        for (hsize_t i = 0; i < total_size; i += 3) {
+            x[counter] = nodeCoords[i];
+            y[counter] = nodeCoords[i + 1];
+            z[counter] = nodeCoords[i + 2];
+            counter++;
+        }
+
+        for (hsize_t i = 0; i < nodeCoordsDim[0]; i++) {
+            std::cout << x[i] << " " << y[i] << " " << z[i] << std::endl;
+        }
+    } else {
+        sendError("NodeCoords datatype is not supported!");
+    }
+
+    H5Tclose(nodeCoords_TId);
+    H5Sclose(nodeCoords_SId);
+    H5Dclose(nodeCoords_DId);
 
     H5Fclose(h5Mesh);
 
