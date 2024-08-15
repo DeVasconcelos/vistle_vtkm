@@ -55,6 +55,8 @@ vistle::Byte hoprToVistleType(int hoprType)
 
 bool ReadHopr::read(vistle::Reader::Token &token, int timestep, int block)
 {
+    vistle::UnstructuredGrid::ptr result(new vistle::UnstructuredGrid(0, 0, 0));
+
     // ---- READ IN MESH FILE ----
     auto h5Mesh = H5Fopen(m_meshFile->getValue().c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
 
@@ -75,15 +77,11 @@ bool ReadHopr::read(vistle::Reader::Token &token, int timestep, int block)
         std::vector<int> elemInfo(total_size);
         H5Dread(elemInfo_DId, H5T_NATIVE_INT, H5S_ALL, H5S_ALL, H5P_DEFAULT, elemInfo.data());
 
-        std::vector<int> type_list(elemInfoDim[0]);
-        std::vector<int> element_list(elemInfoDim[0]);
-
-        size_t counter = 0;
         for (hsize_t i = 0; i < total_size; i += 6) {
-            type_list[counter] = hoprToVistleType(elemInfo[i]);
-            element_list[counter] = elemInfo[i + 4];
-            counter++;
+            result->tl().push_back(elemInfo[i]);
+            result->el().push_back(elemInfo[i + 4]);
         }
+
     } else {
         sendError("ElemInfo data type is not supported!");
     }
@@ -109,20 +107,10 @@ bool ReadHopr::read(vistle::Reader::Token &token, int timestep, int block)
         std::vector<double> nodeCoords(total_size);
         H5Dread(nodeCoords_DId, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, nodeCoords.data());
 
-        std::vector<double> x(nodeCoordsDim[0]);
-        std::vector<double> y(nodeCoordsDim[0]);
-        std::vector<double> z(nodeCoordsDim[0]);
-
-        size_t counter = 0;
         for (hsize_t i = 0; i < total_size; i += 3) {
-            x[counter] = nodeCoords[i];
-            y[counter] = nodeCoords[i + 1];
-            z[counter] = nodeCoords[i + 2];
-            counter++;
-        }
-
-        for (hsize_t i = 0; i < nodeCoordsDim[0]; i++) {
-            std::cout << x[i] << " " << y[i] << " " << z[i] << std::endl;
+            result->x().push_back(nodeCoords[i]);
+            result->y().push_back(nodeCoords[i + 1]);
+            result->z().push_back(nodeCoords[i + 2]);
         }
     } else {
         sendError("NodeCoords datatype is not supported!");
