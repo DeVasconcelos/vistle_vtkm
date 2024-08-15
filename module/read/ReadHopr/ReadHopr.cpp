@@ -2,6 +2,8 @@
 #include <string>
 #include <vector>
 
+#include <vistle/core/unstr.h>
+
 #include "ReadHopr.h"
 
 MODULE_MAIN(ReadHopr)
@@ -30,6 +32,27 @@ bool ReadHopr::examine(const vistle::Parameter *param)
 {
     return true;
 }
+
+
+vistle::Byte hoprToVistleType(int hoprType)
+{
+    //TODO: for now we only support linear HOPR grids
+    switch (hoprType % 10) {
+    case 3:
+        return vistle::UnstructuredGrid::TRIANGLE;
+    case 4:
+        return hoprType < 100 ? vistle::UnstructuredGrid::QUAD : vistle::UnstructuredGrid::TETRAHEDRON;
+    case 5:
+        return vistle::UnstructuredGrid::PYRAMID;
+    case 6:
+        return vistle::UnstructuredGrid::PRISM;
+    case 8:
+        return vistle::UnstructuredGrid::HEXAHEDRON;
+    default:
+        throw vistle::exception("Encountered unsupported HOPR data type");
+    }
+}
+
 bool ReadHopr::read(vistle::Reader::Token &token, int timestep, int block)
 {
     // ---- READ IN MESH FILE ----
@@ -55,15 +78,15 @@ bool ReadHopr::read(vistle::Reader::Token &token, int timestep, int block)
         std::vector<int> element_list(elemInfoDim[0]);
 
         size_t counter = 0;
-        for (auto i = 0; i < total_size; i += 6) {
-            type_list[counter] = elemInfo[i];
+        for (hsize_t i = 0; i < total_size; i += 6) {
+            type_list[counter] = hoprToVistleType(elemInfo[i]);
             element_list[counter] = elemInfo[i + 4];
             counter++;
         }
     } else {
         sendError("Encountered unsupported data type in .h5 dataset");
     }
-    
+
     H5Tclose(elemInfo_TId);
     H5Sclose(elemInfo_SId);
     H5Dclose(elemInfo_DId);
