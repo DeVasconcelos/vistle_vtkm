@@ -89,6 +89,9 @@ void ReadHopr::readMesh(const char *filename, UnstructuredGrid::ptr result)
     std::vector<int> elemInfo;
     readDataset(h5Mesh, "ElemInfo", elemInfo);
 
+    // Hopr's 'ElemInfo' consists of six columns: the first and fifth column contain the element
+    // types (= vistle's type list) and offsets into the connectivity list (= vistle element list),
+    // respectively
     if (elemInfo.size() > 0) {
         for (hsize_t i = 0; i < elemInfo.size(); i += 6) {
             result->tl().push_back(elemInfo[i]);
@@ -103,6 +106,10 @@ void ReadHopr::readMesh(const char *filename, UnstructuredGrid::ptr result)
     std::vector<double> nodeCoords;
     readDataset(h5Mesh, "NodeCoords", nodeCoords);
 
+    // Hopr's 'NodeCoords' consists of three columns: the x, y and z coordinates of the points
+    // that make up the elements of the grid. The coordinates are ordered by element, i.e.,
+    // -> the same point appears multiple times in the array if it belongs to more than one element.
+    // -> vistle's connectivity list is simple a range from 0 to #points in nodeCoords
     if (nodeCoords.size() > 0) {
         auto counter = 0;
         for (hsize_t i = 0; i < nodeCoords.size(); i += 3) {
