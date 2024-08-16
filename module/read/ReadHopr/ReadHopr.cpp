@@ -82,56 +82,71 @@ void readDataset(hid_t fileId, const char *datasetName, std::vector<T> &result)
     H5Dclose(datasetId);
 }
 
-void ReadHopr::readMesh(const char *filename, UnstructuredGrid::ptr result)
+UnstructuredGrid::ptr ReadHopr::readMesh(const char *filename)
 {
+    // read in information necessary to build an unstructured grid
     auto h5Mesh = H5Fopen(filename, H5F_ACC_RDONLY, H5P_DEFAULT);
 
     std::vector<int> elemInfo;
     readDataset(h5Mesh, "ElemInfo", elemInfo);
 
+    std::vector<double> nodeCoords;
+    readDataset(h5Mesh, "NodeCoords", nodeCoords);
+
+    // create the unstructured grid
+    size_t numElements = elemInfo.size() / 6;
+    size_t numCorners = nodeCoords.size() / 3;
+    size_t numVertices = nodeCoords.size() / 3;
+
+    UnstructuredGrid::ptr result(new UnstructuredGrid(numElements, numCorners, numVertices));
+
     // Hopr's 'ElemInfo' consists of six columns: the first and fifth column contain the element
     // types (= vistle's type list) and offsets into the connectivity list (= vistle element list),
     // respectively
     if (elemInfo.size() > 0) {
+        auto counter = 0;
         for (hsize_t i = 0; i < elemInfo.size(); i += 6) {
-            result->tl().push_back(hoprToVistleType(elemInfo[i]));
+            result->tl()[counter] = hoprToVistleType(elemInfo[i]);
             if (i > 0)
-                result->el().push_back(elemInfo[i + 4]);
+                result->el()[counter] = elemInfo[i + 4];
+            counter++;
         }
+        result->el()[result->el().size() - 1] = numCorners;
+
     } else {
         sendError("An exception occurred while reading in 'ElemInfo'. Cannot create mesh.");
-        return;
+        return nullptr;
     }
-
-    std::vector<double> nodeCoords;
-    readDataset(h5Mesh, "NodeCoords", nodeCoords);
 
     // Hopr's 'NodeCoords' consists of three columns: the x, y and z coordinates of the points
     // that make up the elements of the grid. The coordinates are ordered by element, i.e.,
     // -> the same point appears multiple times in the array if it belongs to more than one element.
     // -> vistle's connectivity list is simple a range from 0 to #points in nodeCoords
+
+    // BUG: the order used to define an element out of an array of coordinates seems to differ between
+    // Hopr and vistle (at least for hexahedra)
     if (nodeCoords.size() > 0) {
         auto counter = 0;
         for (hsize_t i = 0; i < nodeCoords.size(); i += 3) {
-            result->x().push_back(nodeCoords[i]);
-            result->y().push_back(nodeCoords[i + 1]);
-            result->z().push_back(nodeCoords[i + 2]);
-            result->cl().push_back(counter++);
+            result->x()[counter] = nodeCoords[i];
+            result->y()[counter] = nodeCoords[i + 1];
+            result->z()[counter] = nodeCoords[i + 2];
+            result->cl()[counter] = counter;
+            counter++;
         }
-        result->el().push_back(counter);
     } else {
         sendError("An exception occurred while reading in 'NodeCoords'. Cannot create mesh.");
-        return;
+        return nullptr;
     }
 
     H5Fclose(h5Mesh);
+
+    return result;
 }
 
 bool ReadHopr::read(Reader::Token &token, int timestep, int block)
 {
-    UnstructuredGrid::ptr result(new UnstructuredGrid(0, 0, 0));
-
-    readMesh(m_meshFile->getValue().c_str(), result);
+    auto result = readMesh(m_meshFile->getValue().c_str());
 
     // ---- READ IN STATE FILE ----
     auto h5State = H5Fopen(m_stateFile->getValue().c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);

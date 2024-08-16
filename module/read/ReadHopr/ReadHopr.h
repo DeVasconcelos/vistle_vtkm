@@ -21,7 +21,7 @@ private:
     vistle::StringParameter *m_meshFile;
     vistle::StringParameter *m_stateFile;
 
-    void readMesh(const char *filename, UnstructuredGrid::ptr result);
+    vistle::UnstructuredGrid::ptr readMesh(const char *filename);
 };
 } // namespace vistle
 
