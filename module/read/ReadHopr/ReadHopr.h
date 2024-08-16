@@ -3,6 +3,8 @@
 
 #include <vistle/module/reader.h>
 
+namespace vistle {
+
 class ReadHopr: public vistle::Reader {
 public:
     ReadHopr(const std::string &name, int moduleID, mpi::communicator comm);
@@ -18,6 +20,9 @@ private:
 
     vistle::StringParameter *m_meshFile;
     vistle::StringParameter *m_stateFile;
+
+    void readMesh(const char *filename, UnstructuredGrid::ptr result);
 };
+} // namespace vistle
 
 #endif //READHOPR_H

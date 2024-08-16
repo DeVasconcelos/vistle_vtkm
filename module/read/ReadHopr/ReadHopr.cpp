@@ -3,12 +3,12 @@
 #include <vector>
 
 #include <vistle/core/unstr.h>
+#include <vistle/module/module.h>
 
 #include "ReadHopr.h"
 
+using namespace vistle;
 MODULE_MAIN(ReadHopr)
-using vistle::Parameter;
-using vistle::Reader;
 
 ReadHopr::ReadHopr(const std::string &name, int moduleID, mpi::communicator comm): Reader(name, moduleID, comm)
 {
@@ -30,102 +30,101 @@ ReadHopr::ReadHopr(const std::string &name, int moduleID, mpi::communicator comm
 ReadHopr::~ReadHopr()
 {}
 
-bool ReadHopr::examine(const vistle::Parameter *param)
+bool ReadHopr::examine(const Parameter *param)
 {
     return true;
 }
 
 
-vistle::Byte hoprToVistleType(int hoprType)
+Byte hoprToVistleType(int hoprType)
 {
     //TODO: for now we only support linear HOPR grids
     switch (hoprType % 10) {
     case 3:
-        return vistle::UnstructuredGrid::TRIANGLE;
+        return UnstructuredGrid::TRIANGLE;
     case 4:
-        return hoprType < 100 ? vistle::UnstructuredGrid::QUAD : vistle::UnstructuredGrid::TETRAHEDRON;
+        return hoprType < 100 ? UnstructuredGrid::QUAD : UnstructuredGrid::TETRAHEDRON;
     case 5:
-        return vistle::UnstructuredGrid::PYRAMID;
+        return UnstructuredGrid::PYRAMID;
     case 6:
-        return vistle::UnstructuredGrid::PRISM;
+        return UnstructuredGrid::PRISM;
     case 8:
-        return vistle::UnstructuredGrid::HEXAHEDRON;
+        return UnstructuredGrid::HEXAHEDRON;
     default:
-        throw vistle::exception("Encountered unsupported HOPR data type");
+        throw exception("Encountered unsupported HOPR data type");
     }
 }
 
-bool ReadHopr::read(vistle::Reader::Token &token, int timestep, int block)
+template<typename T>
+void readDataset(hid_t fileId, const char *datasetName, std::vector<T> &result)
 {
-    vistle::UnstructuredGrid::ptr result(new vistle::UnstructuredGrid(0, 0, 0));
-
-    // ---- READ IN MESH FILE ----
-    auto h5Mesh = H5Fopen(m_meshFile->getValue().c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
-
-    // contains element type + list
-    auto elemInfo_DId = H5Dopen(h5Mesh, "ElemInfo", H5P_DEFAULT);
-    auto elemInfo_SId = H5Dget_space(elemInfo_DId);
-    std::vector<hsize_t> elemInfoDim(H5Sget_simple_extent_ndims(elemInfo_SId));
-    H5Sget_simple_extent_dims(elemInfo_SId, elemInfoDim.data(), nullptr);
+    auto datasetId = H5Dopen(fileId, datasetName, H5P_DEFAULT);
+    auto spaceId = H5Dget_space(datasetId);
+    std::vector<hsize_t> shape(H5Sget_simple_extent_ndims(spaceId));
+    H5Sget_simple_extent_dims(spaceId, shape.data(), nullptr);
 
     hsize_t total_size = 1;
-    for (hsize_t dim: elemInfoDim) {
+    for (hsize_t dim: shape) {
         total_size *= dim;
     }
 
-    auto elemInfo_TId = H5Dget_type(elemInfo_DId);
-    if (H5Tequal(elemInfo_TId, H5T_NATIVE_INT)) {
-        // FIXME: make sure this vector is of the same datatype as used in the .h5 file
-        std::vector<int> elemInfo(total_size);
-        H5Dread(elemInfo_DId, H5T_NATIVE_INT, H5S_ALL, H5S_ALL, H5P_DEFAULT, elemInfo.data());
+    auto dtypeId = H5Dget_type(datasetId);
+    try {
+        result.resize(total_size);
+        H5Dread(datasetId, dtypeId, H5S_ALL, H5S_ALL, H5P_DEFAULT, result.data());
+    } catch (...) {
+        std::cerr << "An exception occurred when trying to read in " << datasetName << " of type " << dtypeId << "."
+                  << std::endl;
+    }
 
-        for (hsize_t i = 0; i < total_size; i += 6) {
+    H5Tclose(dtypeId);
+    H5Sclose(spaceId);
+    H5Dclose(datasetId);
+}
+
+void ReadHopr::readMesh(const char *filename, UnstructuredGrid::ptr result)
+{
+    auto h5Mesh = H5Fopen(filename, H5F_ACC_RDONLY, H5P_DEFAULT);
+
+    std::vector<int> elemInfo;
+    readDataset(h5Mesh, "ElemInfo", elemInfo);
+
+    if (elemInfo.size() > 0) {
+        for (hsize_t i = 0; i < elemInfo.size(); i += 6) {
             result->tl().push_back(elemInfo[i]);
             if (i > 0)
                 result->el().push_back(elemInfo[i + 4]);
         }
     } else {
-        sendError("ElemInfo data type is not supported!");
+        sendError("An exception occurred while reading in 'ElemInfo'. Cannot create mesh.");
+        return;
     }
 
-    H5Tclose(elemInfo_TId);
-    H5Sclose(elemInfo_SId);
-    H5Dclose(elemInfo_DId);
+    std::vector<double> nodeCoords;
+    readDataset(h5Mesh, "NodeCoords", nodeCoords);
 
-    // contains coordinates stored per element, i.e., connectivity list is implied
-    auto nodeCoords_DId = H5Dopen(h5Mesh, "NodeCoords", H5P_DEFAULT);
-    auto nodeCoords_SId = H5Dget_space(nodeCoords_DId);
-    std::vector<hsize_t> nodeCoordsDim(H5Sget_simple_extent_ndims(nodeCoords_SId));
-    H5Sget_simple_extent_dims(nodeCoords_SId, nodeCoordsDim.data(), nullptr);
-
-    total_size = 1;
-    for (hsize_t dim: nodeCoordsDim) {
-        total_size *= dim;
-    }
-
-    auto nodeCoords_TId = H5Dget_type(nodeCoords_DId);
-    if (H5Tequal(nodeCoords_TId, H5T_NATIVE_DOUBLE)) {
-        // FIXME: make sure this vector is of the same datatype as used in the .h5 file
-        std::vector<double> nodeCoords(total_size);
-        H5Dread(nodeCoords_DId, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, nodeCoords.data());
-
+    if (nodeCoords.size() > 0) {
         auto counter = 0;
-        for (hsize_t i = 0; i < total_size; i += 3) {
+        for (hsize_t i = 0; i < nodeCoords.size(); i += 3) {
             result->x().push_back(nodeCoords[i]);
             result->y().push_back(nodeCoords[i + 1]);
             result->z().push_back(nodeCoords[i + 2]);
             result->cl().push_back(counter++);
         }
-        result->el().push_back(nodeCoordsDim[0]);
+        result->el().push_back(counter);
     } else {
-        sendError("NodeCoords datatype is not supported!");
+        sendError("An exception occurred while reading in 'NodeCoords'. Cannot create mesh.");
+        return;
     }
 
-    H5Tclose(nodeCoords_TId);
-    H5Sclose(nodeCoords_SId);
-    H5Dclose(nodeCoords_DId);
-
     H5Fclose(h5Mesh);
+}
+
+bool ReadHopr::read(Reader::Token &token, int timestep, int block)
+{
+    UnstructuredGrid::ptr result(new UnstructuredGrid(0, 0, 0));
+
+    readMesh(m_meshFile->getValue().c_str(), result);
 
     // ---- READ IN STATE FILE ----
     auto h5State = H5Fopen(m_stateFile->getValue().c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
