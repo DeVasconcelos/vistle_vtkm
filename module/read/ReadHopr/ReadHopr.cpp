@@ -94,7 +94,7 @@ void ReadHopr::readMesh(const char *filename, UnstructuredGrid::ptr result)
     // respectively
     if (elemInfo.size() > 0) {
         for (hsize_t i = 0; i < elemInfo.size(); i += 6) {
-            result->tl().push_back(elemInfo[i]);
+            result->tl().push_back(hoprToVistleType(elemInfo[i]));
             if (i > 0)
                 result->el().push_back(elemInfo[i + 4]);
         }
@@ -135,6 +135,9 @@ bool ReadHopr::read(Reader::Token &token, int timestep, int block)
 
     // ---- READ IN STATE FILE ----
     auto h5State = H5Fopen(m_stateFile->getValue().c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
+
+    std::vector<double> DGSolution;
+    readDataset(h5State, "DG_Solution", DGSolution);
 
     H5Fclose(h5State);
 
