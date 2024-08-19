@@ -10,6 +10,8 @@
 using namespace vistle;
 MODULE_MAIN(ReadHopr)
 
+// TODO: find out why VTK produces 8x more cells than reading in the .h5 mesh...
+
 ReadHopr::ReadHopr(const std::string &name, int moduleID, mpi::communicator comm): Reader(name, moduleID, comm)
 {
     m_meshFile = addStringParameter("mesh_file", "HOPR HDF5 (.h5) file containing the mesh information", "",
@@ -101,7 +103,7 @@ size_t addCellToConnectivityList(UnstructuredGrid::ptr grid, size_t offset, Byte
         order = {0, 1, 2, 3};
         break;
     case UnstructuredGrid::PYRAMID:
-        order = {0, 1, 2, 3, 4};
+        order = {0, 1, 3, 2, 4};
         break;
     case UnstructuredGrid::PRISM:
         order = {0, 1, 2, 3, 4, 5};
@@ -169,7 +171,7 @@ UnstructuredGrid::ptr ReadHopr::createMeshFromFile(const char *filename)
             }
             result->tl()[counter] = vistleType;
 
-            // ... the 4th column contains the offsets into the point coordinates list (which, in this
+            // ... the 5th column contains the offsets into the point coordinates list (which, in this
             // case, corresponds to vistle's element list 'el' because the point coordinates are stored cell-wise)
             if (i > 0)
                 result->el()[counter] = elemInfo[i + 4];
@@ -196,6 +198,7 @@ bool ReadHopr::read(Reader::Token &token, int timestep, int block)
     auto result = createMeshFromFile(m_meshFile->getValue().c_str());
 
     // ---- READ IN STATE FILE ----
+    // TODO: handle empty file names
     auto h5State = H5Fopen(m_stateFile->getValue().c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
 
     std::vector<double> DGSolution;
