@@ -36,27 +36,8 @@ bool ReadHopr::examine(const Parameter *param)
 }
 
 
-Byte hoprToVistleType(int hoprType)
-{
-    //TODO: for now we only support linear HOPR grids
-    switch (hoprType % 10) {
-    case 3:
-        return UnstructuredGrid::TRIANGLE;
-    case 4:
-        return hoprType < 100 ? UnstructuredGrid::QUAD : UnstructuredGrid::TETRAHEDRON;
-    case 5:
-        return UnstructuredGrid::PYRAMID;
-    case 6:
-        return UnstructuredGrid::PRISM;
-    case 8:
-        return UnstructuredGrid::HEXAHEDRON;
-    default:
-        throw exception("Encountered unsupported HOPR data type");
-    }
-}
-
 template<typename T>
-void readDataset(hid_t fileId, const char *datasetName, std::vector<T> &result)
+void readH5Dataset(hid_t fileId, const char *datasetName, std::vector<T> &result)
 {
     auto datasetId = H5Dopen(fileId, datasetName, H5P_DEFAULT);
     auto spaceId = H5Dget_space(datasetId);
@@ -82,77 +63,143 @@ void readDataset(hid_t fileId, const char *datasetName, std::vector<T> &result)
     H5Dclose(datasetId);
 }
 
-UnstructuredGrid::ptr ReadHopr::readMesh(const char *filename)
+Byte hoprToVistleType(int hoprType)
+{
+    //TODO: add support for bilinear and nonlinear HOPR cell types
+    switch (hoprType) {
+    case 3:
+        return UnstructuredGrid::TRIANGLE;
+    case 4:
+        return UnstructuredGrid::QUAD;
+    case 104:
+        return UnstructuredGrid::TETRAHEDRON;
+    case 105:
+        return UnstructuredGrid::PYRAMID;
+    case 106:
+        return UnstructuredGrid::PRISM;
+    case 108:
+        return UnstructuredGrid::HEXAHEDRON;
+    default:
+        std::stringstream msg;
+        msg << "The HOPR data type with the encoding " << hoprType << " is not supported.";
+
+        std::cerr << msg.str() << std::endl;
+        throw exception(msg.str());
+    }
+}
+
+size_t addCellToConnectivityList(UnstructuredGrid::ptr grid, size_t offset, Byte cellType)
+{
+    // TODO: create tests (read in .h5 meshes including each cell type)
+    std::vector<Byte> order;
+    switch (cellType) {
+    case UnstructuredGrid::TRIANGLE:
+        order = {0, 1, 2};
+        break;
+    case UnstructuredGrid::QUAD:
+    case UnstructuredGrid::TETRAHEDRON:
+        order = {0, 1, 2, 3};
+        break;
+    case UnstructuredGrid::PYRAMID:
+        order = {0, 1, 2, 3, 4};
+        break;
+    case UnstructuredGrid::PRISM:
+        order = {0, 1, 2, 3, 4, 5};
+        break;
+    case UnstructuredGrid::HEXAHEDRON:
+        order = {0, 1, 3, 2, 4, 5, 7, 6};
+        break;
+    default:
+        throw exception("Found unhandled cell type after converting Hopr to vistle types.");
+    }
+
+    for (size_t i = 0; i < order.size(); i++) {
+        grid->cl()[offset + i] = offset + order[i];
+    }
+    return order.size();
+}
+
+UnstructuredGrid::ptr ReadHopr::createMeshFromFile(const char *filename)
 {
     // read in information necessary to build an unstructured grid
     auto h5Mesh = H5Fopen(filename, H5F_ACC_RDONLY, H5P_DEFAULT);
 
     std::vector<int> elemInfo;
-    readDataset(h5Mesh, "ElemInfo", elemInfo);
+    readH5Dataset(h5Mesh, "ElemInfo", elemInfo);
 
     std::vector<double> nodeCoords;
-    readDataset(h5Mesh, "NodeCoords", nodeCoords);
+    readH5Dataset(h5Mesh, "NodeCoords", nodeCoords);
 
     // create the unstructured grid
-    size_t numElements = elemInfo.size() / 6;
-    size_t numCorners = nodeCoords.size() / 3;
-    size_t numVertices = nodeCoords.size() / 3;
-
-    UnstructuredGrid::ptr result(new UnstructuredGrid(numElements, numCorners, numVertices));
-
-    // Hopr's 'ElemInfo' consists of six columns: the first and fifth column contain the element
-    // types (= vistle's type list) and offsets into the connectivity list (= vistle element list),
-    // respectively
-    if (elemInfo.size() > 0) {
-        auto counter = 0;
-        for (hsize_t i = 0; i < elemInfo.size(); i += 6) {
-            result->tl()[counter] = hoprToVistleType(elemInfo[i]);
-            if (i > 0)
-                result->el()[counter] = elemInfo[i + 4];
-            counter++;
-        }
-        result->el()[result->el().size() - 1] = numCorners;
-
-    } else {
-        sendError("An exception occurred while reading in 'ElemInfo'. Cannot create mesh.");
-        return nullptr;
-    }
+    UnstructuredGrid::ptr result(
+        new UnstructuredGrid(elemInfo.size() / 6, nodeCoords.size() / 3, nodeCoords.size() / 3));
 
     // Hopr's 'NodeCoords' consists of three columns: the x, y and z coordinates of the points
-    // that make up the elements of the grid. The coordinates are ordered by element, i.e.,
-    // -> the same point appears multiple times in the array if it belongs to more than one element.
-    // -> vistle's connectivity list is simple a range from 0 to #points in nodeCoords
-
-    // BUG: the order used to define an element out of an array of coordinates seems to differ between
-    // Hopr and vistle (at least for hexahedra)
+    // that make up the elements of the grid. The coordinates are ordered by element/cell, i.e.,
+    // the same point appears multiple times in the array if it belongs to more than one element.
     if (nodeCoords.size() > 0) {
-        auto counter = 0;
+        size_t counter = 0;
         for (hsize_t i = 0; i < nodeCoords.size(); i += 3) {
             result->x()[counter] = nodeCoords[i];
             result->y()[counter] = nodeCoords[i + 1];
             result->z()[counter] = nodeCoords[i + 2];
-            result->cl()[counter] = counter;
             counter++;
         }
     } else {
         sendError("An exception occurred while reading in 'NodeCoords'. Cannot create mesh.");
+        H5Fclose(h5Mesh);
+        return nullptr;
+    }
+
+    // Hopr's 'ElemInfo' consists of six columns: ...
+    if (elemInfo.size() > 0) {
+        Byte vistleType;
+
+        size_t counter = 0;
+        size_t clSize = 0;
+        for (hsize_t i = 0; i < elemInfo.size(); i += 6) {
+            // ... the 1st column contains the element types (= vistle's type list 'tl')
+            try {
+                vistleType = hoprToVistleType(elemInfo[i]);
+            } catch (...) {
+                sendError("Encountered unsupported HOPR data type. Please note that bilinear and non-linear cell types "
+                          "are not supported yet.");
+                H5Fclose(h5Mesh);
+                return nullptr;
+            }
+            result->tl()[counter] = vistleType;
+
+            // ... the 4th column contains the offsets into the point coordinates list (which, in this
+            // case, corresponds to vistle's element list 'el' because the point coordinates are stored cell-wise)
+            if (i > 0)
+                result->el()[counter] = elemInfo[i + 4];
+
+            // ... there is no equivalent for vistle's connectivity list. Since the node order is not always the
+            // same as in vistle, we have to create it ourselves.
+            clSize += addCellToConnectivityList(result, clSize, vistleType);
+            counter++;
+        }
+        result->el()[result->el().size() - 1] = clSize;
+
+    } else {
+        sendError("An exception occurred while reading in 'ElemInfo'. Cannot create mesh.");
+        H5Fclose(h5Mesh);
         return nullptr;
     }
 
     H5Fclose(h5Mesh);
-
     return result;
 }
 
 bool ReadHopr::read(Reader::Token &token, int timestep, int block)
 {
-    auto result = readMesh(m_meshFile->getValue().c_str());
+    auto result = createMeshFromFile(m_meshFile->getValue().c_str());
 
     // ---- READ IN STATE FILE ----
     auto h5State = H5Fopen(m_stateFile->getValue().c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
 
     std::vector<double> DGSolution;
-    readDataset(h5State, "DG_Solution", DGSolution);
+    readH5Dataset(h5State, "DG_Solution", DGSolution);
 
     H5Fclose(h5State);
 

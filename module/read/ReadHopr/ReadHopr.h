@@ -21,7 +21,9 @@ private:
     vistle::StringParameter *m_meshFile;
     vistle::StringParameter *m_stateFile;
 
-    vistle::UnstructuredGrid::ptr readMesh(const char *filename);
+    // Reads in the 'NodeCoords' and 'ElemInfo' datasets stored in the HOPR file
+    // and uses the information inside to create an unstructured vistle grid.
+    vistle::UnstructuredGrid::ptr createMeshFromFile(const char *filename);
 };
 } // namespace vistle
 
