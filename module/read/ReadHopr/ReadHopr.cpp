@@ -48,6 +48,11 @@ template<typename T>
 void readH5Dataset(hid_t fileId, const char *datasetName, std::vector<T> &result)
 {
     auto datasetId = H5Dopen(fileId, datasetName, H5P_DEFAULT);
+    // TODO: Find better way to handle not finding the specified dataset name in the file!
+    if (datasetId < 0) {
+        std::cerr << "Could not open dataset " << datasetName << "!" << std::endl;
+        return;
+    }
     auto spaceId = H5Dget_space(datasetId);
     std::vector<hsize_t> shape(H5Sget_simple_extent_ndims(spaceId));
     H5Sget_simple_extent_dims(spaceId, shape.data(), nullptr);
@@ -204,26 +209,39 @@ UnstructuredGrid::ptr ReadHopr::createMeshFromFile(const char *filename)
     return result;
 }
 
-bool ReadHopr::read(Reader::Token &token, int timestep, int block)
+void ReadHopr::addDGSolutionToMesh(const char *filename, vistle::UnstructuredGrid::ptr grid)
 {
-    auto meshFileName = m_meshFile->getValue();
+    auto h5State = H5Fopen(m_stateFile->getValue().c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
 
-    UnstructuredGrid::ptr result;
-    if (meshFileName.size()) {
-        result = createMeshFromFile(meshFileName.c_str());
-    } else {
-        sendError("No mesh file is given, cannot create mesh.");
-        return true;
+    if (h5State < 0) {
+        sendError("An error occurred while reading in state file. Cannot add data fields to mesh!");
+        return;
     }
-
-    // ---- READ IN STATE FILE ----
-    /*auto h5State = H5Fopen(m_stateFile->getValue().c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
-
     std::vector<double> DGSolution;
     readH5Dataset(h5State, "DG_Solution", DGSolution);
 
     H5Fclose(h5State);
-    */
+}
+
+
+bool ReadHopr::read(Reader::Token &token, int timestep, int block)
+{
+    UnstructuredGrid::ptr result;
+
+    auto meshFileName = m_meshFile->getValue();
+    if (meshFileName.size()) {
+        result = createMeshFromFile(meshFileName.c_str());
+    } else {
+        sendError("No mesh file was given, so mesh cannot be created.");
+        return true;
+    }
+
+    auto stateFileName = m_stateFile->getValue();
+    if (stateFileName.size()) {
+        addDGSolutionToMesh(stateFileName.c_str(), result);
+    } else {
+        sendInfo("No state file was given, so no fields will be added to the mesh.");
+    }
 
     updateMeta(result);
     addObject(m_gridOut, result);
