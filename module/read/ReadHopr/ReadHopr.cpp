@@ -12,6 +12,12 @@ MODULE_MAIN(ReadHopr)
 
 // TODO: find out why VTK produces 8x more cells than reading in the .h5 mesh...
 
+// FIXME: Only for single-process mode: When attempting to read in multiple .h5 files in the 
+//        same Vistle map, vistle will crash UNLESS hdf5 was compiled to be thread-safe (i.e., with
+//        ./configure --enable-threadsafe --enable-unsupported).
+//        --> Make sure we are using thread-safe hdf5 when compiling vistle in single-process mode
+//        (probably through a hdf5 submodule.) 
+
 ReadHopr::ReadHopr(const std::string &name, int moduleID, mpi::communicator comm): Reader(name, moduleID, comm)
 {
     m_meshFile = addStringParameter("mesh_file", "HOPR HDF5 (.h5) file containing the mesh information", "",
@@ -199,12 +205,13 @@ bool ReadHopr::read(Reader::Token &token, int timestep, int block)
 
     // ---- READ IN STATE FILE ----
     // TODO: handle empty file names
-    auto h5State = H5Fopen(m_stateFile->getValue().c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
+    /*auto h5State = H5Fopen(m_stateFile->getValue().c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
 
     std::vector<double> DGSolution;
     readH5Dataset(h5State, "DG_Solution", DGSolution);
 
     H5Fclose(h5State);
+    */
 
     updateMeta(result);
     addObject(m_gridOut, result);
