@@ -12,11 +12,11 @@ MODULE_MAIN(ReadHopr)
 
 // TODO: find out why VTK produces 8x more cells than reading in the .h5 mesh...
 
-// FIXME: Only for single-process mode: When attempting to read in multiple .h5 files in the 
+// FIXME: Only for single-process mode: When attempting to read in multiple .h5 files in the
 //        same Vistle map, vistle will crash UNLESS hdf5 was compiled to be thread-safe (i.e., with
 //        ./configure --enable-threadsafe --enable-unsupported).
 //        --> Make sure we are using thread-safe hdf5 when compiling vistle in single-process mode
-//        (probably through a hdf5 submodule.) 
+//        (probably through a hdf5 submodule.)
 
 ReadHopr::ReadHopr(const std::string &name, int moduleID, mpi::communicator comm): Reader(name, moduleID, comm)
 {
@@ -132,6 +132,11 @@ UnstructuredGrid::ptr ReadHopr::createMeshFromFile(const char *filename)
     // read in information necessary to build an unstructured grid
     auto h5Mesh = H5Fopen(filename, H5F_ACC_RDONLY, H5P_DEFAULT);
 
+    if (h5Mesh < 0) {
+        sendError("An error occurred while reading in mesh file. Cannot create mesh!");
+        return nullptr;
+    }
+
     std::vector<int> elemInfo;
     readH5Dataset(h5Mesh, "ElemInfo", elemInfo);
 
@@ -201,10 +206,17 @@ UnstructuredGrid::ptr ReadHopr::createMeshFromFile(const char *filename)
 
 bool ReadHopr::read(Reader::Token &token, int timestep, int block)
 {
-    auto result = createMeshFromFile(m_meshFile->getValue().c_str());
+    auto meshFileName = m_meshFile->getValue();
+
+    UnstructuredGrid::ptr result;
+    if (meshFileName.size()) {
+        result = createMeshFromFile(meshFileName.c_str());
+    } else {
+        sendError("No mesh file is given, cannot create mesh.");
+        return true;
+    }
 
     // ---- READ IN STATE FILE ----
-    // TODO: handle empty file names
     /*auto h5State = H5Fopen(m_stateFile->getValue().c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
 
     std::vector<double> DGSolution;
