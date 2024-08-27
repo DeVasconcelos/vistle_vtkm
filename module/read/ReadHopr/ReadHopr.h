@@ -24,7 +24,7 @@ private:
     // Reads in the 'NodeCoords' and 'ElemInfo' datasets stored in the HOPR file
     // and uses the information inside to create an unstructured vistle grid.
     vistle::UnstructuredGrid::ptr createMeshFromFile(const char *filename);
-    
+
     void addDGSolutionToMesh(const char *filename, vistle::UnstructuredGrid::ptr grid);
 };
 } // namespace vistle
