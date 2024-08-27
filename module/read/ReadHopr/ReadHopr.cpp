@@ -12,11 +12,36 @@ MODULE_MAIN(ReadHopr)
 
 // TODO: find out why VTK produces 8x more cells than reading in the .h5 mesh...
 
-// FIXME: Only for single-process mode: When attempting to read in multiple .h5 files in the
-//        same Vistle map, vistle will crash UNLESS hdf5 was compiled to be thread-safe (i.e., with
-//        ./configure --enable-threadsafe --enable-unsupported).
-//        --> Make sure we are using thread-safe hdf5 when compiling vistle in single-process mode
-//        (probably through a hdf5 submodule.)
+// While the C version of HDF5 can be compiled to be threadsafe (with './configure --enable-threadsafe
+// --enable-unsupported'), it is not by default. This is an issue, when compiling vistle in single-process
+// mode, as calling the ReadHopr-module multiple times at the same time leads to vistle crashing.
+// To allow the user to use any HDF5 package, even if it is no threadsafe, we create a mutex and
+// corresponding lock- and unlock-functions that can be used to make sure that the HDF5 library is not
+// accessed by two threads at the same time.
+#if defined(MODULE_THREAD) // If VISTLE_MULTI_PROCESS is OFF...
+static std::mutex hdf5_mutex; // ...avoid simultaneous access to HDF5 library.
+#ifdef COLLECTIVE
+#define LOCK_HDF5(comm) \
+    std::unique_lock<std::mutex> hdf5_guard(hdf5_mutex, std::defer_lock); \
+    if ((comm).rank() == 0) \
+        hdf5_guard.lock(); \
+    (comm).barrier();
+#define UNLOCK_HDF5(comm) \
+    (comm).barrier(); \
+    if (hdf5_guard) \
+        hdf5_guard.unlock();
+#else
+#define LOCK_HDF5(comm) \
+    std::unique_lock<std::mutex> hdf5_guard(hdf5_mutex, std::defer_lock); \
+    hdf5_guard.lock();
+#define UNLOCK_HDF5(comm) \
+    if (hdf5_guard) \
+        hdf5_guard.unlock();
+#endif
+#else
+#define LOCK_HDF5(comm)
+#define UNLOCK_HDF5(comm)
+#endif
 
 ReadHopr::ReadHopr(const std::string &name, int moduleID, mpi::communicator comm): Reader(name, moduleID, comm)
 {
@@ -103,7 +128,6 @@ Byte hoprToVistleType(int hoprType)
 
 size_t addCellToConnectivityList(UnstructuredGrid::ptr grid, size_t offset, Byte cellType)
 {
-    // TODO: create tests (read in .h5 meshes including each cell type)
     std::vector<Byte> order;
     switch (cellType) {
     case UnstructuredGrid::TRIANGLE:
@@ -230,7 +254,9 @@ bool ReadHopr::read(Reader::Token &token, int timestep, int block)
 
     auto meshFileName = m_meshFile->getValue();
     if (meshFileName.size()) {
+        LOCK_HDF5(comm());
         result = createMeshFromFile(meshFileName.c_str());
+        UNLOCK_HDF5(comm());
     } else {
         sendError("No mesh file was given, so mesh cannot be created.");
         return true;
@@ -238,7 +264,9 @@ bool ReadHopr::read(Reader::Token &token, int timestep, int block)
 
     auto stateFileName = m_stateFile->getValue();
     if (stateFileName.size()) {
+        LOCK_HDF5(comm());
         addDGSolutionToMesh(stateFileName.c_str(), result);
+        UNLOCK_HDF5(comm());
     } else {
         sendInfo("No state file was given, so no fields will be added to the mesh.");
     }
