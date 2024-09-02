@@ -74,6 +74,7 @@ void readH5Dataset(hid_t fileId, const char *datasetName, std::vector<T> &result
 {
     auto datasetId = H5Dopen(fileId, datasetName, H5P_DEFAULT);
     // TODO: Find better way to handle not finding the specified dataset name in the file!
+    //       Could also check if there is something like H5Aexists for datasets...
     if (datasetId < 0) {
         std::cerr << "Could not open dataset " << datasetName << "!" << std::endl;
         return;
@@ -243,6 +244,26 @@ void ReadHopr::addDGSolutionToMesh(const char *filename, vistle::UnstructuredGri
     }
     std::vector<double> DGSolution;
     readH5Dataset(h5State, "DG_Solution", DGSolution);
+
+    // From general info get:
+    // - number of variables in data + their names (e.g., density, momentumX, ...)
+    //   Beforehand: create enough output ports (for now let's just read in one)
+
+    // - polynomial degree of the solution (N, Ngeo)
+    int polyDegree = 0;
+    if (H5Aexists(h5State, "N")) // or NComputation?
+    {
+        auto degId = H5Aopen(h5State, "N", H5P_DEFAULT);
+        if (degId > -1) {
+            H5Aread(degId, H5Aget_type(degId), &polyDegree);
+        } else {
+            sendError("Could not read in 'N' attribute in the state file");
+        }
+        H5Aclose(degId);
+    }
+
+    // From DG Solutions get:
+    // - use algorithm 9 to get the solution at the corner nodes ONLY (no HO nodes for now)
 
     H5Fclose(h5State);
 }
