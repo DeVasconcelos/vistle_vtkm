@@ -68,7 +68,7 @@ bool ReadHopr::examine(const Parameter *param)
     return true;
 }
 
-
+//TODO: strings must be handled differently (as they can be variable or fixed size, see 'varNames')
 template<typename T>
 void readH5Dataset(hid_t fileId, const char *datasetName, std::vector<T> &result)
 {
@@ -83,14 +83,14 @@ void readH5Dataset(hid_t fileId, const char *datasetName, std::vector<T> &result
     std::vector<hsize_t> shape(H5Sget_simple_extent_ndims(spaceId));
     H5Sget_simple_extent_dims(spaceId, shape.data(), nullptr);
 
-    hsize_t total_size = 1;
+    hsize_t totalSize = 1;
     for (hsize_t dim: shape) {
-        total_size *= dim;
+        totalSize *= dim;
     }
 
     auto dtypeId = H5Dget_type(datasetId);
     try {
-        result.resize(total_size);
+        result.resize(totalSize);
         H5Dread(datasetId, dtypeId, H5S_ALL, H5S_ALL, H5P_DEFAULT, result.data());
     } catch (...) {
         std::cerr << "An exception occurred when trying to read in " << datasetName << " of type " << dtypeId << "."
@@ -248,6 +248,62 @@ void ReadHopr::addDGSolutionToMesh(const char *filename, vistle::UnstructuredGri
     // From general info get:
     // - number of variables in data + their names (e.g., density, momentumX, ...)
     //   Beforehand: create enough output ports (for now let's just read in one)
+    std::vector<std::string> varNames;
+    hsize_t totalSize = 1;
+    //TODO: extract to "ReadAttribute" method
+    if (H5Aexists(h5State, "VarNames")) {
+        auto varNamesId = H5Aopen(h5State, "VarNames", H5P_DEFAULT);
+        if (varNamesId > -1) {
+            auto spaceId = H5Aget_space(varNamesId);
+            if (spaceId > 1) {
+                std::vector<hsize_t> shape(H5Sget_simple_extent_ndims(spaceId));
+                H5Sget_simple_extent_dims(spaceId, shape.data(), nullptr);
+
+                for (hsize_t dim: shape) {
+                    totalSize *= dim;
+                }
+
+                auto varNamesDtypeId = H5Aget_type(varNamesId);
+                assert(H5Tget_class(varNamesDtypeId) == H5T_STRING);
+
+                if (H5Tis_variable_str(varNamesDtypeId)) {
+                    std::vector<char *> tmpVarNames(totalSize);
+
+                    if (H5Aread(varNamesId, varNamesDtypeId, tmpVarNames.data()) < 0) {
+                        sendError("Error reading attribute data");
+                        H5Sclose(spaceId);
+                        H5Aclose(varNamesId);
+                        return;
+                    }
+
+                    // convert char* to std::string
+                    for (hsize_t i = 0; i < totalSize; ++i) {
+                        varNames.push_back(std::string(tmpVarNames[i]));
+                        free(tmpVarNames[i]);
+                    }
+                } else {
+                    size_t fixedStrSize = H5Tget_size(varNamesDtypeId);
+                    std::vector<char> temp_data(totalSize * fixedStrSize);
+
+                    if (H5Aread(varNamesId, varNamesDtypeId, temp_data.data()) < 0) {
+                        sendError("Error reading attribute data");
+                        H5Sclose(spaceId);
+                        H5Aclose(varNamesId);
+                        return;
+                    }
+
+                    // convert char arrays to std::string
+                    for (hsize_t i = 0; i < totalSize; ++i) {
+                        varNames.push_back(std::string(&temp_data[i * fixedStrSize], fixedStrSize));
+                    }
+                }
+            }
+            H5Sclose(spaceId);
+        } else {
+            sendError("Could not read in 'VarNames' attribute in the state file!");
+        }
+        H5Aclose(varNamesId);
+    }
 
     // - polynomial degree of the solution (N, Ngeo)
     int polyDegree = 0;
@@ -257,7 +313,7 @@ void ReadHopr::addDGSolutionToMesh(const char *filename, vistle::UnstructuredGri
         if (degId > -1) {
             H5Aread(degId, H5Aget_type(degId), &polyDegree);
         } else {
-            sendError("Could not read in 'N' attribute in the state file");
+            sendError("Could not read in 'N' attribute in the state file!");
         }
         H5Aclose(degId);
     }
