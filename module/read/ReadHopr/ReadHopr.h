@@ -16,10 +16,15 @@ public:
     bool finishRead() override;
 
 private:
+    static const int NumPorts = 5;
+
     vistle::Port *m_gridOut;
 
     vistle::StringParameter *m_meshFile;
     vistle::StringParameter *m_stateFile;
+
+    vistle::StringParameter *m_fieldChoice[NumPorts];
+    vistle::Port *m_fieldsOut[NumPorts];
 
     // Reads in the 'NodeCoords' and 'ElemInfo' datasets stored in the HOPR file
     // and uses the information inside to create an unstructured vistle grid.

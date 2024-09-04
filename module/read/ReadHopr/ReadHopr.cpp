@@ -1,4 +1,5 @@
 #include <hdf5.h>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -11,6 +12,7 @@ using namespace vistle;
 MODULE_MAIN(ReadHopr)
 
 // TODO: find out why VTK produces 8x more cells than reading in the .h5 mesh...
+//       --> that's because the solution is a polynomial of degree 4 (can be read out of state file)
 
 // While the C version of HDF5 can be compiled to be threadsafe (with './configure --enable-threadsafe
 // --enable-unsupported'), it is not by default. This is an issue, when compiling vistle in single-process
@@ -55,6 +57,17 @@ ReadHopr::ReadHopr(const std::string &name, int moduleID, mpi::communicator comm
     setParameterFilters(m_stateFile, hoprFormat);
 
     m_gridOut = createOutputPort("grid_out", "grid");
+
+    for (int i = 0; i < NumPorts; i++) {
+        std::stringstream choiceFieldName;
+        choiceFieldName << "state_field_" << i;
+
+        m_fieldChoice[i] = addStringParameter(
+            "state_field_" + std::to_string(i),
+            "This data field from the state file will be added to output port field_out_" + std::to_string(i) + ".", "",
+            Parameter::Choice);
+        m_fieldsOut[i] = createOutputPort("field_out_" + std::to_string(i), "data field");
+    }
 
     observeParameter(m_meshFile);
     observeParameter(m_stateFile);
@@ -292,11 +305,16 @@ void ReadHopr::addDGSolutionToMesh(const char *filename, vistle::UnstructuredGri
                         return;
                     }
 
+                    // add variable names to field choice parameter
+                    varNames.insert(varNames.begin(), "(NONE)");
                     // convert char arrays to std::string
                     for (hsize_t i = 0; i < totalSize; ++i) {
                         varNames.push_back(std::string(&temp_data[i * fixedStrSize], fixedStrSize));
                     }
                 }
+            }
+            for (int i = 0; i < NumPorts; ++i) {
+                setParameterChoices(m_fieldChoice[i], varNames);
             }
             H5Sclose(spaceId);
         } else {
