@@ -81,7 +81,7 @@ bool ReadHopr::examine(const Parameter *param)
     return true;
 }
 
-//TODO: strings must be handled differently (as they can be variable or fixed size, see 'varNames')
+//TODO: strings must be handled differently (as they can be variable or fixed size, see 'readH5Attribute<std::string>')
 template<typename T>
 void readH5Dataset(hid_t fileId, const char *datasetName, std::vector<T> &result)
 {
@@ -113,6 +113,114 @@ void readH5Dataset(hid_t fileId, const char *datasetName, std::vector<T> &result
     H5Tclose(dtypeId);
     H5Sclose(spaceId);
     H5Dclose(datasetId);
+}
+
+template<typename T>
+std::vector<T> readH5Attribute(hid_t fileId, const char *attrName)
+{
+    std::vector<T> result;
+    hsize_t attrSize = 1;
+    if (H5Aexists(fileId, attrName)) {
+        auto attrId = H5Aopen(fileId, attrName, H5P_DEFAULT);
+        if (attrId > -1) {
+            auto spaceId = H5Aget_space(attrId);
+            if (spaceId > 1) {
+                std::vector<hsize_t> shape(H5Sget_simple_extent_ndims(spaceId));
+                H5Sget_simple_extent_dims(spaceId, shape.data(), nullptr);
+
+                for (hsize_t dim: shape) {
+                    attrSize *= dim;
+                }
+
+                result.resize(attrSize);
+                if (H5Aread(attrId, H5Aget_type(attrId), result.data()) < 0) {
+                    std::cerr << "An error occurred when trying to read the attribute '" << attrName
+                              << "' with H5Aread!" << std::endl;
+                    H5Sclose(spaceId);
+                    H5Aclose(attrId);
+                    return std::vector<T>();
+                }
+            }
+            H5Sclose(spaceId);
+        } else {
+            std::cerr << "An error occurred when trying to open the attribute '" << attrName << "'with H5Aopen."
+                      << std::endl;
+            return result;
+        }
+        H5Aclose(attrId);
+    } else {
+        std::cerr << "The attribute '" << std::to_string(attrName) << "' does not exist in the given file! (H5Aexists)"
+                  << std::endl;
+    }
+    return result;
+}
+
+// HDF5 string attributes can be of fixed or variable length, so they have to be read in differently
+// than attributes of other types.
+template<>
+std::vector<std::string> readH5Attribute<std::string>(hid_t fileId, const char *attrName)
+{
+    std::vector<std::string> result;
+    hsize_t attrSize = 1;
+    if (H5Aexists(fileId, attrName)) {
+        auto attrId = H5Aopen(fileId, attrName, H5P_DEFAULT);
+        if (attrId > -1) {
+            auto spaceId = H5Aget_space(attrId);
+            if (spaceId > 1) {
+                std::vector<hsize_t> shape(H5Sget_simple_extent_ndims(spaceId));
+                H5Sget_simple_extent_dims(spaceId, shape.data(), nullptr);
+
+                for (hsize_t dim: shape) {
+                    attrSize *= dim;
+                }
+
+                auto dtypeId = H5Aget_type(attrId);
+                assert(H5Tget_class(dtypeId) == H5T_STRING);
+
+                if (H5Tis_variable_str(dtypeId)) {
+                    std::vector<char *> tmpResult(attrSize);
+
+                    if (H5Aread(attrId, dtypeId, tmpResult.data()) < 0) {
+                        std::cerr << "An error occurred when trying to read the attribute '" << attrName
+                                  << "' with H5Aread!" << std::endl;
+                        H5Sclose(spaceId);
+                        H5Aclose(attrId);
+                        return result;
+                    }
+
+                    for (hsize_t i = 0; i < attrSize; ++i) {
+                        result.push_back(std::string(tmpResult[i]));
+                        free(tmpResult[i]);
+                    }
+                } else {
+                    size_t strSize = H5Tget_size(dtypeId);
+                    std::vector<char> temp_data(attrSize * strSize);
+
+                    if (H5Aread(attrId, dtypeId, temp_data.data()) < 0) {
+                        std::cerr << "An error occurred when trying to read the attribute '" << attrName
+                                  << "' with H5Aread!" << std::endl;
+                        H5Sclose(spaceId);
+                        H5Aclose(attrId);
+                        return result;
+                    }
+
+                    for (hsize_t i = 0; i < attrSize; ++i) {
+                        result.push_back(std::string(&temp_data[i * strSize], strSize));
+                    }
+                }
+            }
+            H5Sclose(spaceId);
+        } else {
+            std::cerr << "An error occurred when trying to open the attribute '" << attrName << "'with H5Aopen."
+                      << std::endl;
+            return result;
+        }
+        H5Aclose(attrId);
+    } else {
+        std::cerr << "The attribute '" << std::to_string(attrName) << "' does not exist in the given file! (H5Aexists)"
+                  << std::endl;
+    }
+    return result;
 }
 
 Byte hoprToVistleType(int hoprType)
@@ -261,66 +369,15 @@ void ReadHopr::addDGSolutionToMesh(const char *filename, vistle::UnstructuredGri
     // From general info get:
     // - number of variables in data + their names (e.g., density, momentumX, ...)
     //   Beforehand: create enough output ports (for now let's just read in one)
-    std::vector<std::string> varNames;
-    hsize_t totalSize = 1;
-    //TODO: extract to "ReadAttribute" method
-    if (H5Aexists(h5State, "VarNames")) {
-        auto varNamesId = H5Aopen(h5State, "VarNames", H5P_DEFAULT);
-        if (varNamesId > -1) {
-            auto spaceId = H5Aget_space(varNamesId);
-            if (spaceId > 1) {
-                std::vector<hsize_t> shape(H5Sget_simple_extent_ndims(spaceId));
-                H5Sget_simple_extent_dims(spaceId, shape.data(), nullptr);
+    auto varNames = readH5Attribute<std::string>(h5State, "VarNames");
 
-                for (hsize_t dim: shape) {
-                    totalSize *= dim;
-                }
+    if (varNames.size() == 0)
+        sendError("Could not read in 'VarNames' attribute!");
 
-                auto varNamesDtypeId = H5Aget_type(varNamesId);
-                assert(H5Tget_class(varNamesDtypeId) == H5T_STRING);
-
-                if (H5Tis_variable_str(varNamesDtypeId)) {
-                    std::vector<char *> tmpVarNames(totalSize);
-
-                    if (H5Aread(varNamesId, varNamesDtypeId, tmpVarNames.data()) < 0) {
-                        sendError("Error reading attribute data");
-                        H5Sclose(spaceId);
-                        H5Aclose(varNamesId);
-                        return;
-                    }
-
-                    // convert char* to std::string
-                    for (hsize_t i = 0; i < totalSize; ++i) {
-                        varNames.push_back(std::string(tmpVarNames[i]));
-                        free(tmpVarNames[i]);
-                    }
-                } else {
-                    size_t fixedStrSize = H5Tget_size(varNamesDtypeId);
-                    std::vector<char> temp_data(totalSize * fixedStrSize);
-
-                    if (H5Aread(varNamesId, varNamesDtypeId, temp_data.data()) < 0) {
-                        sendError("Error reading attribute data");
-                        H5Sclose(spaceId);
-                        H5Aclose(varNamesId);
-                        return;
-                    }
-
-                    // add variable names to field choice parameter
-                    varNames.insert(varNames.begin(), "(NONE)");
-                    // convert char arrays to std::string
-                    for (hsize_t i = 0; i < totalSize; ++i) {
-                        varNames.push_back(std::string(&temp_data[i * fixedStrSize], fixedStrSize));
-                    }
-                }
-            }
-            for (int i = 0; i < NumPorts; ++i) {
-                setParameterChoices(m_fieldChoice[i], varNames);
-            }
-            H5Sclose(spaceId);
-        } else {
-            sendError("Could not read in 'VarNames' attribute in the state file!");
-        }
-        H5Aclose(varNamesId);
+    // add variable names to field choice parameter
+    varNames.insert(varNames.begin(), "(NONE)");
+    for (int i = 0; i < NumPorts; ++i) {
+        setParameterChoices(m_fieldChoice[i], varNames);
     }
 
     // - polynomial degree of the solution (N, Ngeo)
