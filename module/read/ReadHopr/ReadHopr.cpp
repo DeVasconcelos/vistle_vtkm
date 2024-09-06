@@ -83,14 +83,14 @@ bool ReadHopr::examine(const Parameter *param)
 
 //TODO: strings must be handled differently (as they can be variable or fixed size, see 'readH5Attribute<std::string>')
 template<typename T>
-void readH5Dataset(hid_t fileId, const char *datasetName, std::vector<T> &result)
+std::vector<T> readH5Dataset(hid_t fileId, const char *datasetName)
 {
+    std::vector<T> result;
     auto datasetId = H5Dopen(fileId, datasetName, H5P_DEFAULT);
-    // TODO: Find better way to handle not finding the specified dataset name in the file!
-    //       Could also check if there is something like H5Aexists for datasets...
     if (datasetId < 0) {
         std::cerr << "Could not open dataset " << datasetName << "!" << std::endl;
-        return;
+        H5Dclose(datasetId);
+        return result;
     }
     auto spaceId = H5Dget_space(datasetId);
     std::vector<hsize_t> shape(H5Sget_simple_extent_ndims(spaceId));
@@ -102,17 +102,21 @@ void readH5Dataset(hid_t fileId, const char *datasetName, std::vector<T> &result
     }
 
     auto dtypeId = H5Dget_type(datasetId);
-    try {
-        result.resize(totalSize);
-        H5Dread(datasetId, dtypeId, H5S_ALL, H5S_ALL, H5P_DEFAULT, result.data());
-    } catch (...) {
-        std::cerr << "An exception occurred when trying to read in " << datasetName << " of type " << dtypeId << "."
+    result.resize(totalSize);
+    if (H5Dread(datasetId, dtypeId, H5S_ALL, H5S_ALL, H5P_DEFAULT, result.data()) < 0) {
+        std::cerr << "An error occurred when trying to read in " << datasetName << " of type " << dtypeId << "."
                   << std::endl;
+        //TODO: find a way to not always have to close all ids manually
+        H5Tclose(dtypeId);
+        H5Sclose(spaceId);
+        H5Dclose(datasetId);
+        return std::vector<T>();
     }
 
     H5Tclose(dtypeId);
     H5Sclose(spaceId);
     H5Dclose(datasetId);
+    return result;
 }
 
 template<typename T>
@@ -288,11 +292,13 @@ UnstructuredGrid::ptr ReadHopr::createMeshFromFile(const char *filename)
         return nullptr;
     }
 
-    std::vector<int> elemInfo;
-    readH5Dataset(h5Mesh, "ElemInfo", elemInfo);
+    auto elemInfo = readH5Dataset<int>(h5Mesh, "ElemInfo");
+    if (elemInfo.size() == 0)
+        sendError("Could not read in 'ElemInfo' dataset!");
 
-    std::vector<double> nodeCoords;
-    readH5Dataset(h5Mesh, "NodeCoords", nodeCoords);
+    auto nodeCoords = readH5Dataset<double>(h5Mesh, "NodeCoords");
+    if (nodeCoords.size() == 0)
+        sendError("Could not read in 'NodeCoords' dataset!");
 
     // create the unstructured grid
     UnstructuredGrid::ptr result(
@@ -363,8 +369,9 @@ void ReadHopr::addDGSolutionToMesh(const char *filename, vistle::UnstructuredGri
         sendError("An error occurred while reading in state file. Cannot add data fields to mesh!");
         return;
     }
-    std::vector<double> DGSolution;
-    readH5Dataset(h5State, "DG_Solution", DGSolution);
+    auto DGSolution = readH5Dataset<double>(h5State, "DG_Solution");
+    if (DGSolution.size() == 0)
+        sendError("Could not read in 'DG_Solution' dataset!");
 
     // From general info get:
     // - number of variables in data + their names (e.g., density, momentumX, ...)
@@ -382,6 +389,7 @@ void ReadHopr::addDGSolutionToMesh(const char *filename, vistle::UnstructuredGri
 
     // - polynomial degree of the solution (N, Ngeo)
     int polyDegree = 0;
+    //TODO: extract this to method
     if (H5Aexists(h5State, "N")) // or NComputation?
     {
         auto degId = H5Aopen(h5State, "N", H5P_DEFAULT);
