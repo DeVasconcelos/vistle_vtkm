@@ -388,18 +388,8 @@ void ReadHopr::addDGSolutionToMesh(const char *filename, vistle::UnstructuredGri
     }
 
     // - polynomial degree of the solution (N, Ngeo)
-    int polyDegree = 0;
-    //TODO: extract this to method
-    if (H5Aexists(h5State, "N")) // or NComputation?
-    {
-        auto degId = H5Aopen(h5State, "N", H5P_DEFAULT);
-        if (degId > -1) {
-            H5Aread(degId, H5Aget_type(degId), &polyDegree);
-        } else {
-            sendError("Could not read in 'N' attribute in the state file!");
-        }
-        H5Aclose(degId);
-    }
+    //TODO: think about if we want to keep it like this (works, but hard to read)
+    auto polyDegree = (readH5Attribute<int>(h5State, "N"))[0];
 
     // From DG Solutions get:
     // - use algorithm 9 to get the solution at the corner nodes ONLY (no HO nodes for now)
