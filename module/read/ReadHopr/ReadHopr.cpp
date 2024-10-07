@@ -377,9 +377,9 @@ UnstructuredGrid::ptr ReadHopr::createMeshFromFile(const char *filename)
     return result;
 }
 
-std::map<std::string, std::vector<double>> ReadHopr::getDGSolutionVariables(const char *filename)
+std::map<std::string, Vec<Scalar, 1>::ptr> ReadHopr::getDGSolutionVariables(const char *filename)
 {
-    std::map<std::string, std::vector<double>> result;
+    std::map<std::string, Vec<Scalar, 1>::ptr> result;
     /*
         DGSolution contains an array of size n * (N + 1)^3 * m, where n is the number of elements
         defined in the mesh, N is the polynomial degree, and m is the number of variables.
@@ -410,26 +410,24 @@ std::map<std::string, std::vector<double>> ReadHopr::getDGSolutionVariables(cons
 
     // From DG Solutions get:
     // - use algorithm 9 to get the solution at the corner nodes ONLY (no HO nodes for now)
-
-    // prepare map
-    for (size_t i = 0; i < varNames.size(); i++) {
-        result[varNames[i]] = std::vector<double>();
-    }
-
+    // TODO: make this work for all element types!
     auto dim = DGDataset.dimension;
-    for (hsize_t elemI = 0; elemI < dim[0]; elemI++) {
-        for (hsize_t iX = 0; iX < dim[1]; iX++) {
-            for (hsize_t iY = 0; iY < dim[2]; iY++) {
-                for (hsize_t iZ = 0; iZ < dim[3]; iZ++) {
-                    for (hsize_t varI = 0; varI < dim[4]; varI++) {
+    auto nrCorners = 8;
+    for (hsize_t varI = 0; varI < dim[4]; varI++) {
+        result[varNames[varI]] = Vec<Scalar, 1>::ptr(new Vec<Scalar, 1>(dim[0] * nrCorners));
+        auto counter = 0;
+        for (hsize_t elemI = 0; elemI < dim[0]; elemI++) {
+            for (hsize_t iX = 0; iX < dim[1]; iX++) {
+                for (hsize_t iY = 0; iY < dim[2]; iY++) {
+                    for (hsize_t iZ = 0; iZ < dim[3]; iZ++) {
                         auto index = varI + dim[4] * (iZ + dim[3] * (iY + dim[2] * (iX + dim[1] * elemI)));
                         auto nodeNr = iZ + (dim[3] * (iY + dim[2] * iX));
-                        //TODO: make this work for other element types!
                         if ((nodeNr == 0) || (nodeNr == N) || (nodeNr == pow(N + 1, 2) - 1) ||
                             (nodeNr == N * (N + 1)) || (nodeNr == N * pow(N + 1, 2)) ||
                             (nodeNr == N * pow(N + 1, 2) + N) || (nodeNr == pow(N + 1, 3) - 1) ||
                             (nodeNr == N * (N + 1) * (N + 2))) {
-                            result[varNames[varI]].push_back(DGSolution[index]);
+                            result[varNames[varI]]->x()[counter] = DGSolution[index];
+                            counter++;
                         }
                     }
                 }
@@ -451,7 +449,7 @@ std::map<std::string, std::vector<double>> ReadHopr::getDGSolutionVariables(cons
 bool ReadHopr::read(Reader::Token &token, int timestep, int block)
 {
     UnstructuredGrid::ptr grid;
-    std::map<std::string, std::vector<double>> variables;
+    std::map<std::string, Vec<Scalar, 1>::ptr> variables;
 
     auto meshFileName = m_meshFile->getValue();
     if (meshFileName.size()) {
@@ -478,13 +476,9 @@ bool ReadHopr::read(Reader::Token &token, int timestep, int block)
     for (int i = 0; i < NumPorts; i++) {
         if (m_fieldChoice[i]->getValue() != Invalid) {
             auto varName = m_fieldChoice[i]->getValue();
-            auto fieldVec = variables[varName];
-            if (!fieldVec.empty()) {
-                auto field = Vec<Scalar, 1>::ptr(new Vec<Scalar, 1>(fieldVec.size()));
-                // TODO: remove this copy!
-                for (size_t j = 0; j < fieldVec.size(); j++) {
-                    field->x()[j] = fieldVec[j];
-                }
+            auto field = variables[varName];
+
+            if (field) {
                 field->addAttribute("_species", varName);
                 field->setMapping(vistle::DataBase::Vertex);
                 field->setGrid(grid);
