@@ -1,4 +1,8 @@
 #include <hdf5.h>
+#include <cctype>
+#include <cmath>
+#include <map>
+#include <numeric>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -11,8 +15,12 @@
 using namespace vistle;
 MODULE_MAIN(ReadHopr)
 
+const std::string Invalid("(NONE)");
+
 // TODO: find out why VTK produces 8x more cells than reading in the .h5 mesh...
 //       --> that's because the solution is a polynomial of degree 4 (can be read out of state file)
+// TODO: create higher order elements! (right now we are only storing the corner nodes, i.e., pretending
+//       the state is linear)
 
 // While the C version of HDF5 can be compiled to be threadsafe (with './configure --enable-threadsafe
 // --enable-unsupported'), it is not by default. This is an issue, when compiling vistle in single-process
@@ -81,11 +89,17 @@ bool ReadHopr::examine(const Parameter *param)
     return true;
 }
 
+template<typename T>
+struct H5Dataset {
+    std::vector<T> vector;
+    std::vector<hsize_t> dimension;
+};
+
 //TODO: strings must be handled differently (as they can be variable or fixed size, see 'readH5Attribute<std::string>')
 template<typename T>
-std::vector<T> readH5Dataset(hid_t fileId, const char *datasetName)
+H5Dataset<T> readH5Dataset(hid_t fileId, const char *datasetName)
 {
-    std::vector<T> result;
+    H5Dataset<T> result;
     auto datasetId = H5Dopen(fileId, datasetName, H5P_DEFAULT);
     if (datasetId < 0) {
         std::cerr << "Could not open dataset " << datasetName << "!" << std::endl;
@@ -96,29 +110,28 @@ std::vector<T> readH5Dataset(hid_t fileId, const char *datasetName)
     std::vector<hsize_t> shape(H5Sget_simple_extent_ndims(spaceId));
     H5Sget_simple_extent_dims(spaceId, shape.data(), nullptr);
 
-    hsize_t totalSize = 1;
     for (hsize_t dim: shape) {
-        totalSize *= dim;
+        result.dimension.push_back(dim);
     }
+
+    auto totalSize = std::accumulate(result.dimension.begin(), result.dimension.end(), 1, std::multiplies<hsize_t>());
 
     auto dtypeId = H5Dget_type(datasetId);
-    result.resize(totalSize);
-    if (H5Dread(datasetId, dtypeId, H5S_ALL, H5S_ALL, H5P_DEFAULT, result.data()) < 0) {
+    result.vector.resize(totalSize);
+    if (H5Dread(datasetId, dtypeId, H5S_ALL, H5S_ALL, H5P_DEFAULT, result.vector.data()) < 0) {
         std::cerr << "An error occurred when trying to read in " << datasetName << " of type " << dtypeId << "."
                   << std::endl;
-        //TODO: find a way to not always have to close all ids manually
-        H5Tclose(dtypeId);
-        H5Sclose(spaceId);
-        H5Dclose(datasetId);
-        return std::vector<T>();
+        result.vector.clear();
     }
 
+    //TODO: find a way to not always have to close all ids manually
     H5Tclose(dtypeId);
     H5Sclose(spaceId);
     H5Dclose(datasetId);
     return result;
 }
 
+//TODO: use struct like H5Dataset here, too!
 template<typename T>
 std::vector<T> readH5Attribute(hid_t fileId, const char *attrName)
 {
@@ -209,7 +222,10 @@ std::vector<std::string> readH5Attribute<std::string>(hid_t fileId, const char *
                     }
 
                     for (hsize_t i = 0; i < attrSize; ++i) {
-                        result.push_back(std::string(&temp_data[i * strSize], strSize));
+                        auto rawStr = std::string(&temp_data[i * strSize], strSize);
+                        // remove whitespaces from string
+                        rawStr.erase(std::remove_if(rawStr.begin(), rawStr.end(), ::isspace), rawStr.end());
+                        result.push_back(rawStr);
                     }
                 }
             }
@@ -292,11 +308,11 @@ UnstructuredGrid::ptr ReadHopr::createMeshFromFile(const char *filename)
         return nullptr;
     }
 
-    auto elemInfo = readH5Dataset<int>(h5Mesh, "ElemInfo");
+    auto elemInfo = readH5Dataset<int>(h5Mesh, "ElemInfo").vector;
     if (elemInfo.size() == 0)
         sendError("Could not read in 'ElemInfo' dataset!");
 
-    auto nodeCoords = readH5Dataset<double>(h5Mesh, "NodeCoords");
+    auto nodeCoords = readH5Dataset<double>(h5Mesh, "NodeCoords").vector;
     if (nodeCoords.size() == 0)
         sendError("Could not read in 'NodeCoords' dataset!");
 
@@ -361,15 +377,22 @@ UnstructuredGrid::ptr ReadHopr::createMeshFromFile(const char *filename)
     return result;
 }
 
-void ReadHopr::addDGSolutionToMesh(const char *filename, vistle::UnstructuredGrid::ptr grid)
+std::map<std::string, std::vector<double>> ReadHopr::getDGSolutionVariables(const char *filename)
 {
+    std::map<std::string, std::vector<double>> result;
+    /*
+        DGSolution contains an array of size n * (N + 1)^3 * m, where n is the number of elements
+        defined in the mesh, N is the polynomial degree, and m is the number of variables.
+    */
     auto h5State = H5Fopen(m_stateFile->getValue().c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
 
     if (h5State < 0) {
         sendError("An error occurred while reading in state file. Cannot add data fields to mesh!");
-        return;
+        return result;
     }
-    auto DGSolution = readH5Dataset<double>(h5State, "DG_Solution");
+    auto DGDataset = readH5Dataset<double>(h5State, "DG_Solution");
+    auto DGSolution = DGDataset.vector;
+
     if (DGSolution.size() == 0)
         sendError("Could not read in 'DG_Solution' dataset!");
 
@@ -381,31 +404,59 @@ void ReadHopr::addDGSolutionToMesh(const char *filename, vistle::UnstructuredGri
     if (varNames.size() == 0)
         sendError("Could not read in 'VarNames' attribute!");
 
-    // add variable names to field choice parameter
-    varNames.insert(varNames.begin(), "(NONE)");
-    for (int i = 0; i < NumPorts; ++i) {
-        setParameterChoices(m_fieldChoice[i], varNames);
-    }
-
     // - polynomial degree of the solution (N, Ngeo)
     //TODO: think about if we want to keep it like this (works, but hard to read)
-    auto polyDegree = (readH5Attribute<int>(h5State, "N"))[0];
+    auto N = (readH5Attribute<int>(h5State, "N"))[0];
 
     // From DG Solutions get:
     // - use algorithm 9 to get the solution at the corner nodes ONLY (no HO nodes for now)
 
+    // prepare map
+    for (auto i = 0; i < varNames.size(); i++) {
+        result[varNames[i]] = std::vector<double>();
+    }
+
+    auto dim = DGDataset.dimension;
+    for (auto elemI = 0; elemI < dim[0]; elemI++) {
+        for (auto iX = 0; iX < dim[1]; iX++) {
+            for (auto iY = 0; iY < dim[2]; iY++) {
+                for (auto iZ = 0; iZ < dim[3]; iZ++) {
+                    for (auto varI = 0; varI < dim[4]; varI++) {
+                        auto index = varI + dim[4] * (iZ + dim[3] * (iY + dim[2] * (iX + dim[1] * elemI)));
+                        auto nodeNr = iZ + (dim[3] * (iY + dim[2] * iX));
+                        //TODO: make this work for other element types!
+                        if ((nodeNr == 0) || (nodeNr == N) || (nodeNr == pow(N + 1, 2) - 1) ||
+                            (nodeNr == N * (N + 1)) || (nodeNr == N * pow(N + 1, 2)) ||
+                            (nodeNr == N * pow(N + 1, 2) + N) || (nodeNr == pow(N + 1, 3) - 1) ||
+                            (nodeNr == N * (N + 1) * (N + 2))) {
+                            result[varNames[varI]].push_back(DGSolution[index]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // add variable names to field choice parameter
+    varNames.insert(varNames.begin(), Invalid);
+    for (int i = 0; i < NumPorts; ++i) {
+        setParameterChoices(m_fieldChoice[i], varNames);
+    }
+
     H5Fclose(h5State);
+    return result;
 }
 
 
 bool ReadHopr::read(Reader::Token &token, int timestep, int block)
 {
-    UnstructuredGrid::ptr result;
+    UnstructuredGrid::ptr grid;
+    std::map<std::string, std::vector<double>> variables;
 
     auto meshFileName = m_meshFile->getValue();
     if (meshFileName.size()) {
         LOCK_HDF5(comm());
-        result = createMeshFromFile(meshFileName.c_str());
+        grid = createMeshFromFile(meshFileName.c_str());
         UNLOCK_HDF5(comm());
     } else {
         sendError("No mesh file was given, so mesh cannot be created.");
@@ -415,14 +466,33 @@ bool ReadHopr::read(Reader::Token &token, int timestep, int block)
     auto stateFileName = m_stateFile->getValue();
     if (stateFileName.size()) {
         LOCK_HDF5(comm());
-        addDGSolutionToMesh(stateFileName.c_str(), result);
+        variables = getDGSolutionVariables(stateFileName.c_str());
         UNLOCK_HDF5(comm());
     } else {
         sendInfo("No state file was given, so no fields will be added to the mesh.");
     }
 
-    updateMeta(result);
-    addObject(m_gridOut, result);
+    updateMeta(grid);
+    addObject(m_gridOut, grid);
+
+    for (int i = 0; i < NumPorts; i++) {
+        if (m_fieldChoice[i]->getValue() != Invalid) {
+            auto varName = m_fieldChoice[i]->getValue();
+            auto fieldVec = variables[varName];
+            if (!fieldVec.empty()) {
+                auto field = Vec<Scalar, 1>::ptr(new Vec<Scalar, 1>(fieldVec.size()));
+                for (auto j = 0; j < fieldVec.size(); j++) {
+                    field->x()[j] = fieldVec[j];
+                }
+                field->addAttribute("_species", varName);
+                field->setMapping(vistle::DataBase::Vertex);
+                field->setGrid(grid);
+
+                token.applyMeta(field);
+                token.addObject(m_fieldsOut[i], field);
+            }
+        }
+    }
 
     return true;
 }

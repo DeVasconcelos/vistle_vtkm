@@ -30,7 +30,7 @@ private:
     // and uses the information inside to create an unstructured vistle grid.
     vistle::UnstructuredGrid::ptr createMeshFromFile(const char *filename);
 
-    void addDGSolutionToMesh(const char *filename, vistle::UnstructuredGrid::ptr grid);
+    std::map<std::string, std::vector<double>> getDGSolutionVariables(const char *filename);
 };
 } // namespace vistle
 
