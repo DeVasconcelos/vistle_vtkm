@@ -412,16 +412,16 @@ std::map<std::string, std::vector<double>> ReadHopr::getDGSolutionVariables(cons
     // - use algorithm 9 to get the solution at the corner nodes ONLY (no HO nodes for now)
 
     // prepare map
-    for (auto i = 0; i < varNames.size(); i++) {
+    for (size_t i = 0; i < varNames.size(); i++) {
         result[varNames[i]] = std::vector<double>();
     }
 
     auto dim = DGDataset.dimension;
-    for (auto elemI = 0; elemI < dim[0]; elemI++) {
-        for (auto iX = 0; iX < dim[1]; iX++) {
-            for (auto iY = 0; iY < dim[2]; iY++) {
-                for (auto iZ = 0; iZ < dim[3]; iZ++) {
-                    for (auto varI = 0; varI < dim[4]; varI++) {
+    for (hsize_t elemI = 0; elemI < dim[0]; elemI++) {
+        for (hsize_t iX = 0; iX < dim[1]; iX++) {
+            for (hsize_t iY = 0; iY < dim[2]; iY++) {
+                for (hsize_t iZ = 0; iZ < dim[3]; iZ++) {
+                    for (hsize_t varI = 0; varI < dim[4]; varI++) {
                         auto index = varI + dim[4] * (iZ + dim[3] * (iY + dim[2] * (iX + dim[1] * elemI)));
                         auto nodeNr = iZ + (dim[3] * (iY + dim[2] * iX));
                         //TODO: make this work for other element types!
@@ -481,7 +481,8 @@ bool ReadHopr::read(Reader::Token &token, int timestep, int block)
             auto fieldVec = variables[varName];
             if (!fieldVec.empty()) {
                 auto field = Vec<Scalar, 1>::ptr(new Vec<Scalar, 1>(fieldVec.size()));
-                for (auto j = 0; j < fieldVec.size(); j++) {
+                // TODO: remove this copy!
+                for (size_t j = 0; j < fieldVec.size(); j++) {
                     field->x()[j] = fieldVec[j];
                 }
                 field->addAttribute("_species", varName);
