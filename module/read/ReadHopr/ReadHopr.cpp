@@ -1,4 +1,4 @@
-#include <hdf5.h>
+#include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <map>
@@ -6,6 +6,8 @@
 #include <sstream>
 #include <string>
 #include <vector>
+
+#include <hdf5.h>
 
 #include <vistle/core/unstr.h>
 #include <vistle/module/module.h>
@@ -389,26 +391,29 @@ void ReadHopr::setFieldChoices(const std::vector<std::string> &choices)
 // Using Algorithm 9 to get the solution at the corner nodes only
 // (see Hopr documentation, https://hopr.readthedocs.io/en/latest/userguide/meshformat.html)
 std::map<std::string, Vec<Scalar, 1>::ptr> getSolutionDataAtCornerNodes(std::vector<double> DGSolution,
-                                                                        std::vector<hsize_t> DGDim, int N,
+                                                                        std::vector<hsize_t> DGDim, hsize_t N,
                                                                         const std::vector<std::string> &varNames)
 {
-    // TODO: make this work for all element types!
-    std::map<std::string, Vec<Scalar, 1>::ptr> result;
+    // TODO: add support for all Hopr element types!
+    std::vector<std::vector<hsize_t>> cornerIndices = {{0, 0, 0}, {N, 0, 0}, {N, N, 0}, {0, N, 0},
+                                                       {0, 0, N}, {N, 0, N}, {N, N, N}, {0, N, N}};
     auto nrCorners = 8;
+
+    std::map<std::string, Vec<Scalar, 1>::ptr> result;
     for (hsize_t varI = 0; varI < DGDim[4]; varI++) {
+        // FIXME: right now we assume that all elements in the unstructured grid are of the same type
         result[varNames[varI]] = Vec<Scalar, 1>::ptr(new Vec<Scalar, 1>(DGDim[0] * nrCorners));
         auto counter = 0;
         for (hsize_t elemI = 0; elemI < DGDim[0]; elemI++) {
             for (hsize_t iX = 0; iX < DGDim[1]; iX++) {
                 for (hsize_t iY = 0; iY < DGDim[2]; iY++) {
                     for (hsize_t iZ = 0; iZ < DGDim[3]; iZ++) {
-                        auto index = varI + DGDim[4] * (iZ + DGDim[3] * (iY + DGDim[2] * (iX + DGDim[1] * elemI)));
-                        auto nodeNr = iZ + (DGDim[3] * (iY + DGDim[2] * iX));
-                        if ((nodeNr == 0) || (nodeNr == N) || (nodeNr == pow(N + 1, 2) - 1) ||
-                            (nodeNr == N * (N + 1)) || (nodeNr == N * pow(N + 1, 2)) ||
-                            (nodeNr == N * pow(N + 1, 2) + N) || (nodeNr == pow(N + 1, 3) - 1) ||
-                            (nodeNr == N * (N + 1) * (N + 2))) {
-                            result[varNames[varI]]->x()[counter] = DGSolution[index];
+                        auto isCornerNode = std::find(cornerIndices.begin(), cornerIndices.end(),
+                                                      std::vector<hsize_t>{iX, iY, iZ}) != cornerIndices.end();
+                        if (isCornerNode) {
+                            auto flattenedIndex =
+                                varI + DGDim[4] * (iZ + DGDim[3] * (iY + DGDim[2] * (iX + DGDim[1] * elemI)));
+                            result[varNames[varI]]->x()[counter] = DGSolution[flattenedIndex];
                             counter++;
                         }
                     }
@@ -436,7 +441,7 @@ std::map<std::string, Vec<Scalar, 1>::ptr> ReadHopr::extractFieldsFromStateFile(
     setFieldChoices(varNames);
 
     //TODO: what's the difference between N and Ngeo?
-    auto N = (readH5Attribute<int>(h5State, "N"))[0];
+    auto N = (readH5Attribute<hsize_t>(h5State, "N"))[0];
 
     auto DGDataset = readH5Dataset<double>(h5State, "DG_Solution");
     auto DGSolution = DGDataset.vector;
