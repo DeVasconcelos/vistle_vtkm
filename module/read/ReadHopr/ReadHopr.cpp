@@ -377,51 +377,33 @@ UnstructuredGrid::ptr ReadHopr::createMeshFromFile(const char *filename)
     return result;
 }
 
-std::map<std::string, Vec<Scalar, 1>::ptr> ReadHopr::getDGSolutionVariables(const char *filename)
+void ReadHopr::setFieldChoices(const std::vector<std::string> &choices)
 {
-    std::map<std::string, Vec<Scalar, 1>::ptr> result;
-    /*
-        DGSolution contains an array of size n * (N + 1)^3 * m, where n is the number of elements
-        defined in the mesh, N is the polynomial degree, and m is the number of variables.
-    */
-    auto h5State = H5Fopen(m_stateFile->getValue().c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
-
-    if (h5State < 0) {
-        sendError("An error occurred while reading in state file. Cannot add data fields to mesh!");
-        return result;
+    auto choicesPlusInvalid = choices;
+    choicesPlusInvalid.insert(choicesPlusInvalid.begin(), Invalid);
+    for (int i = 0; i < NumPorts; i++) {
+        setParameterChoices(m_fieldChoice[i], choicesPlusInvalid);
     }
-    auto DGDataset = readH5Dataset<double>(h5State, "DG_Solution");
-    auto DGSolution = DGDataset.vector;
+}
 
-    if (DGSolution.size() == 0)
-        sendError("Could not read in 'DG_Solution' dataset!");
-
-    // From general info get:
-    // - number of variables in data + their names (e.g., density, momentumX, ...)
-    //   Beforehand: create enough output ports (for now let's just read in one)
-    auto varNames = readH5Attribute<std::string>(h5State, "VarNames");
-
-    if (varNames.size() == 0)
-        sendError("Could not read in 'VarNames' attribute!");
-
-    // - polynomial degree of the solution (N, Ngeo)
-    //TODO: think about if we want to keep it like this (works, but hard to read)
-    auto N = (readH5Attribute<int>(h5State, "N"))[0];
-
-    // From DG Solutions get:
-    // - use algorithm 9 to get the solution at the corner nodes ONLY (no HO nodes for now)
+// Using Algorithm 9 to get the solution at the corner nodes only
+// (see Hopr documentation, https://hopr.readthedocs.io/en/latest/userguide/meshformat.html)
+std::map<std::string, Vec<Scalar, 1>::ptr> getSolutionDataAtCornerNodes(std::vector<double> DGSolution,
+                                                                        std::vector<hsize_t> DGDim, int N,
+                                                                        const std::vector<std::string> &varNames)
+{
     // TODO: make this work for all element types!
-    auto dim = DGDataset.dimension;
+    std::map<std::string, Vec<Scalar, 1>::ptr> result;
     auto nrCorners = 8;
-    for (hsize_t varI = 0; varI < dim[4]; varI++) {
-        result[varNames[varI]] = Vec<Scalar, 1>::ptr(new Vec<Scalar, 1>(dim[0] * nrCorners));
+    for (hsize_t varI = 0; varI < DGDim[4]; varI++) {
+        result[varNames[varI]] = Vec<Scalar, 1>::ptr(new Vec<Scalar, 1>(DGDim[0] * nrCorners));
         auto counter = 0;
-        for (hsize_t elemI = 0; elemI < dim[0]; elemI++) {
-            for (hsize_t iX = 0; iX < dim[1]; iX++) {
-                for (hsize_t iY = 0; iY < dim[2]; iY++) {
-                    for (hsize_t iZ = 0; iZ < dim[3]; iZ++) {
-                        auto index = varI + dim[4] * (iZ + dim[3] * (iY + dim[2] * (iX + dim[1] * elemI)));
-                        auto nodeNr = iZ + (dim[3] * (iY + dim[2] * iX));
+        for (hsize_t elemI = 0; elemI < DGDim[0]; elemI++) {
+            for (hsize_t iX = 0; iX < DGDim[1]; iX++) {
+                for (hsize_t iY = 0; iY < DGDim[2]; iY++) {
+                    for (hsize_t iZ = 0; iZ < DGDim[3]; iZ++) {
+                        auto index = varI + DGDim[4] * (iZ + DGDim[3] * (iY + DGDim[2] * (iX + DGDim[1] * elemI)));
+                        auto nodeNr = iZ + (DGDim[3] * (iY + DGDim[2] * iX));
                         if ((nodeNr == 0) || (nodeNr == N) || (nodeNr == pow(N + 1, 2) - 1) ||
                             (nodeNr == N * (N + 1)) || (nodeNr == N * pow(N + 1, 2)) ||
                             (nodeNr == N * pow(N + 1, 2) + N) || (nodeNr == pow(N + 1, 3) - 1) ||
@@ -435,16 +417,39 @@ std::map<std::string, Vec<Scalar, 1>::ptr> ReadHopr::getDGSolutionVariables(cons
         }
     }
 
-    // add variable names to field choice parameter
-    varNames.insert(varNames.begin(), Invalid);
-    for (int i = 0; i < NumPorts; ++i) {
-        setParameterChoices(m_fieldChoice[i], varNames);
+    return result;
+}
+
+std::map<std::string, Vec<Scalar, 1>::ptr> ReadHopr::extractFieldsFromStateFile(const char *filename)
+{
+    auto h5State = H5Fopen(m_stateFile->getValue().c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
+    if (h5State < 0) {
+        sendError("An error occurred while reading in state file. Cannot add data fields to mesh!");
+        return std::map<std::string, Vec<Scalar, 1>::ptr>();
     }
+
+    auto varNames = readH5Attribute<std::string>(h5State, "VarNames");
+
+    if (varNames.size() == 0)
+        sendError("Could not read in 'VarNames' attribute!");
+
+    setFieldChoices(varNames);
+
+    //TODO: what's the difference between N and Ngeo?
+    auto N = (readH5Attribute<int>(h5State, "N"))[0];
+
+    auto DGDataset = readH5Dataset<double>(h5State, "DG_Solution");
+    auto DGSolution = DGDataset.vector;
+    auto DGDim = DGDataset.dimension;
+
+    if (DGSolution.size() == 0)
+        sendError("Could not read in 'DG_Solution' dataset!");
+
+    auto result = getSolutionDataAtCornerNodes(DGSolution, DGDim, N, varNames);
 
     H5Fclose(h5State);
     return result;
 }
-
 
 bool ReadHopr::read(Reader::Token &token, int timestep, int block)
 {
@@ -464,7 +469,7 @@ bool ReadHopr::read(Reader::Token &token, int timestep, int block)
     auto stateFileName = m_stateFile->getValue();
     if (stateFileName.size()) {
         LOCK_HDF5(comm());
-        variables = getDGSolutionVariables(stateFileName.c_str());
+        variables = extractFieldsFromStateFile(stateFileName.c_str());
         UNLOCK_HDF5(comm());
     } else {
         sendInfo("No state file was given, so no fields will be added to the mesh.");
@@ -491,10 +496,12 @@ bool ReadHopr::read(Reader::Token &token, int timestep, int block)
 
     return true;
 }
+
 bool ReadHopr::prepareRead()
 {
     return true;
 }
+
 bool ReadHopr::finishRead()
 {
     return true;

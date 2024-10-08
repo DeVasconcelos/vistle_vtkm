@@ -26,11 +26,15 @@ private:
     vistle::StringParameter *m_fieldChoice[NumPorts];
     vistle::Port *m_fieldsOut[NumPorts];
 
+    void setFieldChoices(const std::vector<std::string> &choices);
+
     // Reads in the 'NodeCoords' and 'ElemInfo' datasets stored in the HOPR file
     // and uses the information inside to create an unstructured vistle grid.
     vistle::UnstructuredGrid::ptr createMeshFromFile(const char *filename);
 
-    std::map<std::string, vistle::Vec<vistle::Scalar, 1>::ptr> getDGSolutionVariables(const char *filename);
+    // Read in the 'VarNames' and 'DG_Solution' datates stored in the HOPR file
+    // and uses the information inside to create a vistle field for each variable.
+    std::map<std::string, vistle::Vec<vistle::Scalar, 1>::ptr> extractFieldsFromStateFile(const char *filename);
 };
 } // namespace vistle
 
