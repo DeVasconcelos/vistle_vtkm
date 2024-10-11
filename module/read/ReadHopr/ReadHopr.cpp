@@ -388,24 +388,25 @@ void ReadHopr::setFieldChoices(const std::vector<std::string> &choices)
     }
 }
 
-class CornerNodeChecker {
+class CGNSCorners {
 private:
-    std::map<vistle::Byte, std::vector<std::vector<hsize_t>>> cornerNodesMap;
+    std::map<vistle::Byte, std::vector<std::vector<hsize_t>>> cornerIndicesMap;
 
 public:
-    CornerNodeChecker(hsize_t N)
+    CGNSCorners(hsize_t N)
     {
-        cornerNodesMap = {{UnstructuredGrid::TETRAHEDRON, {{0, 0, 0}, {N, 0, 0}, {0, N, 0}, {0, 0, N}}},
-                          {UnstructuredGrid::PYRAMID, {{0, 0, 0}, {N, 0, 0}, {N, N, 0}, {0, N, 0}, {0, 0, N}}},
-                          {UnstructuredGrid::PRISM, {{0, 0, 0}, {N, 0, 0}, {0, N, 0}, {0, 0, N}, {N, 0, N}, {0, N, N}}},
-                          {UnstructuredGrid::HEXAHEDRON,
-                           {{0, 0, 0}, {N, 0, 0}, {N, N, 0}, {0, N, 0}, {0, 0, N}, {N, 0, N}, {N, N, N}, {0, N, N}}}};
+        cornerIndicesMap = {
+            {UnstructuredGrid::TETRAHEDRON, {{0, 0, 0}, {N, 0, 0}, {0, N, 0}, {0, 0, N}}},
+            {UnstructuredGrid::PYRAMID, {{0, 0, 0}, {N, 0, 0}, {N, N, 0}, {0, N, 0}, {0, 0, N}}},
+            {UnstructuredGrid::PRISM, {{0, 0, 0}, {N, 0, 0}, {0, N, 0}, {0, 0, N}, {N, 0, N}, {0, N, N}}},
+            {UnstructuredGrid::HEXAHEDRON,
+             {{0, 0, 0}, {N, 0, 0}, {N, N, 0}, {0, N, 0}, {0, 0, N}, {N, 0, N}, {N, N, N}, {0, N, N}}}};
     }
 
-    bool isCornerNode(std::vector<hsize_t> index, vistle::Byte type) const
+    bool isCorner(std::vector<hsize_t> index, vistle::Byte type) const
     {
-        if (cornerNodesMap.find(type) != cornerNodesMap.end()) {
-            auto cornerIndices = cornerNodesMap.at(type);
+        if (cornerIndicesMap.find(type) != cornerIndicesMap.end()) {
+            auto cornerIndices = cornerIndicesMap.at(type);
             return std::find(cornerIndices.begin(), cornerIndices.end(), index) != cornerIndices.end();
         } else {
             throw exception(
@@ -414,10 +415,10 @@ public:
         }
     }
 
-    std::vector<std::vector<hsize_t>> getCornerNodes(vistle::Byte type) const
+    std::vector<std::vector<hsize_t>> getIndices(vistle::Byte type) const
     {
-        if (cornerNodesMap.find(type) != cornerNodesMap.end()) {
-            return cornerNodesMap.at(type);
+        if (cornerIndicesMap.find(type) != cornerIndicesMap.end()) {
+            return cornerIndicesMap.at(type);
         } else {
             throw exception(
                 "Encountered unsupported element type when trying to read out corner nodes in the given HOPR "
@@ -427,25 +428,23 @@ public:
 };
 
 
-// Using Algorithm 9 to get the solution at the corner nodes only
+// Using Algorithm 9 to get the solution at the CGNS corner nodes only
 // (see Hopr documentation, https://hopr.readthedocs.io/en/latest/userguide/meshformat.html)
 std::map<std::string, Vec<Scalar, 1>::ptr>
 getSolutionDataAtCornerNodes(std::vector<double> DGSolution, std::vector<hsize_t> DGDim, hsize_t polynomialDegree,
                              const std::vector<std::string> &varNames, const Byte *typeList, Index numCorners)
 {
-    // Create a map to store CornerNodeChecker instances for each element type
-    auto checker = CornerNodeChecker(polynomialDegree);
+    auto cornerNodes = CGNSCorners(polynomialDegree);
 
     std::map<std::string, Vec<Scalar, 1>::ptr> result;
     for (hsize_t varI = 0; varI < DGDim[4]; varI++) {
         result[varNames[varI]] = Vec<Scalar, 1>::ptr(new Vec<Scalar, 1>(numCorners));
         auto counter = 0;
         for (hsize_t elemI = 0; elemI < DGDim[0]; elemI++) {
-            auto cornerNodes = checker.getCornerNodes(typeList[elemI]);
-            for (auto &cornerNode: cornerNodes) {
-                auto [iX, iY, iZ] = std::tie(cornerNode[0], cornerNode[1], cornerNode[2]);
-                auto flattenedIndex = varI + DGDim[4] * (iZ + DGDim[3] * (iY + DGDim[2] * (iX + DGDim[1] * elemI)));
-                result[varNames[varI]]->x()[counter] = DGSolution[flattenedIndex];
+            for (auto &cornerIndex: cornerNodes.getIndices(typeList[elemI])) {
+                auto [iX, iY, iZ] = std::tie(cornerIndex[0], cornerIndex[1], cornerIndex[2]);
+                result[varNames[varI]]->x()[counter] =
+                    DGSolution[varI + DGDim[4] * (iZ + DGDim[3] * (iY + DGDim[2] * (iX + DGDim[1] * elemI)))];
                 counter++;
             }
         }
