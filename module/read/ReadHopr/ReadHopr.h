@@ -34,7 +34,8 @@ private:
 
     // Reads in the 'VarNames' and 'DG_Solution' datasets stored in the HOPR file
     // and uses the information inside to create a vistle field for each variable.
-    std::map<std::string, vistle::Vec<vistle::Scalar, 1>::ptr> extractFieldsFromStateFile(const char *filename);
+    std::map<std::string, vistle::Vec<vistle::Scalar, 1>::ptr>
+    extractFieldsFromStateFile(const char *filename, const Byte *typeList, Index numCorners);
 };
 } // namespace vistle
 
