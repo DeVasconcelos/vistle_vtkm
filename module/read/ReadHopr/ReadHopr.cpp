@@ -413,6 +413,17 @@ public:
                 "dataset.");
         }
     }
+
+    std::vector<std::vector<hsize_t>> getCornerNodes(vistle::Byte type) const
+    {
+        if (cornerNodesMap.find(type) != cornerNodesMap.end()) {
+            return cornerNodesMap.at(type);
+        } else {
+            throw exception(
+                "Encountered unsupported element type when trying to read out corner nodes in the given HOPR "
+                "dataset.");
+        }
+    }
 };
 
 
@@ -430,18 +441,12 @@ getSolutionDataAtCornerNodes(std::vector<double> DGSolution, std::vector<hsize_t
         result[varNames[varI]] = Vec<Scalar, 1>::ptr(new Vec<Scalar, 1>(numCorners));
         auto counter = 0;
         for (hsize_t elemI = 0; elemI < DGDim[0]; elemI++) {
-            auto elementType = typeList[elemI];
-            for (hsize_t iX = 0; iX < DGDim[1]; iX++) {
-                for (hsize_t iY = 0; iY < DGDim[2]; iY++) {
-                    for (hsize_t iZ = 0; iZ < DGDim[3]; iZ++) {
-                        if (checker.isCornerNode({iX, iY, iZ}, elementType)) {
-                            auto flattenedIndex =
-                                varI + DGDim[4] * (iZ + DGDim[3] * (iY + DGDim[2] * (iX + DGDim[1] * elemI)));
-                            result[varNames[varI]]->x()[counter] = DGSolution[flattenedIndex];
-                            counter++;
-                        }
-                    }
-                }
+            auto cornerNodes = checker.getCornerNodes(typeList[elemI]);
+            for (auto &cornerNode: cornerNodes) {
+                auto [iX, iY, iZ] = std::tie(cornerNode[0], cornerNode[1], cornerNode[2]);
+                auto flattenedIndex = varI + DGDim[4] * (iZ + DGDim[3] * (iY + DGDim[2] * (iX + DGDim[1] * elemI)));
+                result[varNames[varI]]->x()[counter] = DGSolution[flattenedIndex];
+                counter++;
             }
         }
     }
