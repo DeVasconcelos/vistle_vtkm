@@ -5,5 +5,6 @@ Coding Guidelines
    :maxdepth: 1
 
    coding
+   datastructures
    implementation
    documentation

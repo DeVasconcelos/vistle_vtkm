@@ -57,6 +57,8 @@ Modules
    MapDrape.md
    MetaData.md
    MpiInfo.md
+   MyModule.md
+   MyReader.md
    ObjectStatistics.md
    OsgRenderer.md
    PrintAttributes.md
