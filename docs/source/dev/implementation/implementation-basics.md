@@ -1,5 +1,6 @@
 # The Basics
 
+<!-- TODO: find out whats wrong with the pictures...-->
 Vistle is designed to be easily extensible through its modular structure. This tutorial will show you how to write your own Vistle module and how to incorporate it into the software, so you can use it right away.
 
 It will explain the following topics:
