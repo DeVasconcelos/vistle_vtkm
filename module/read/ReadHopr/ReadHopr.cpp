@@ -268,6 +268,121 @@ getSolutionDataAtCornerNodes(std::vector<double> DGSolution, std::vector<hsize_t
     return result;
 }
 
+std::map<std::string, Vec<Scalar, 1>::ptr> getSolutionPerVariable(std::vector<double> DGSolution,
+                                                                  std::vector<hsize_t> DGDim, hsize_t polynomialDegree,
+                                                                  const std::vector<std::string> &varNames,
+                                                                  const Byte *typeList)
+{
+    std::map<std::string, Vec<Scalar, 1>::ptr> result;
+    for (hsize_t varI = 0; varI < DGDim[4]; varI++) {
+        result[varNames[varI]] = Vec<Scalar, 1>::ptr(new Vec<Scalar, 1>(DGDim[0] * DGDim[1] * DGDim[2] * DGDim[3]));
+        auto counter = 0;
+        for (hsize_t elemI = 0; elemI < DGDim[0]; elemI++) {
+            for (hsize_t iX = 0; iX < DGDim[1]; iX++) {
+                for (hsize_t iY = 0; iY < DGDim[2]; iY++) {
+                    for (hsize_t iZ = 0; iZ < DGDim[3]; iZ++) {
+                        result[varNames[varI]]->x()[counter] =
+                            DGSolution[varI + DGDim[4] * (iZ + DGDim[3] * (iY + DGDim[2] * (iX + DGDim[1] * elemI)))];
+                        counter++;
+                    }
+                }
+            }
+        }
+    }
+
+    return result;
+}
+
+//TODO: support other element types
+UnstructuredGrid::ptr createHigherOrderHexahedralGrid(UnstructuredGrid::ptr grid, hsize_t N)
+{
+    auto nrCorners = 8;
+    auto nrLinElements = grid->getNumElements();
+    auto nrCurvElements = nrLinElements * N * N * N;
+
+    UnstructuredGrid::ptr result(
+        new UnstructuredGrid(nrCurvElements, nrCurvElements * nrCorners, nrLinElements * (N + 1) * (N + 1) * (N + 1)));
+
+    auto curvX = result->x().data();
+    auto curvY = result->y().data();
+    auto curvZ = result->z().data();
+
+    // Step 1: calculate the point coordinates of the higher order nodes (result: x, y, z arrays of the new grid)
+    // Loop through all elements:
+    auto x = grid->x().data();
+    auto y = grid->y().data();
+    auto z = grid->z().data();
+
+    auto cl = grid->cl().data();
+    auto el = grid->el().data();
+
+    auto counter = 0;
+    for (Index i = 0; i < nrLinElements; i++) {
+        //     - calculate hexahedral edge lengths lx, ly, lz (i.e., distances between c0-c1, c0-c3, c0-c4)
+        auto elemIndex = cl[el[i]];
+        auto c0 = Vector3(x[elemIndex], y[elemIndex], z[elemIndex]);
+        auto lx = (c0 - Vector3(x[elemIndex + 1], y[elemIndex + 1], z[elemIndex + 1])).norm() / N;
+        auto ly = (c0 - Vector3(x[elemIndex + 2], y[elemIndex + 2], z[elemIndex + 2])).norm() / N; 
+        auto lz = (c0 - Vector3(x[elemIndex + 4], y[elemIndex + 4], z[elemIndex + 4])).norm() / N;
+
+        //     - calculate the (N+1)^3 - 1 node positions using position of c0 and the edge lengths
+        //       position i = c0 + ix * lx + iy * ly + iz * lz, where ix, iy, iz are the HO indices (used in DGsolution)
+        for (hsize_t iX = 0; iX <= N; iX++) {
+            for (hsize_t iY = 0; iY <= N; iY++) {
+                for (hsize_t iZ = 0; iZ <= N; iZ++) {
+                    curvX[counter] = c0[0] + iX * lx;
+                    curvY[counter] = c0[1] + iY * ly;
+                    curvZ[counter] = c0[2] + iZ * lz;
+                    counter++;
+                }
+            }
+        }
+    }
+
+    // Step 2: create the connectivity list for the higher order elements (result: cl of size 8 * N^3)
+    // Loop through HO nodes (but leave out the right and upper corners):
+    //     connectivity for hexahedron: i + (0 , 1, 4, 3, 9, 10, 13, 12)
+
+    auto curvCl = result->cl().data();
+    auto curvEl = result->el().data();
+    auto curvTl = result->tl().data();
+
+    auto elemCounter = 0;
+    auto connCounter = 0;
+
+    auto startOffset = 0;
+
+
+    auto back = N + 1;
+    auto up = (N + 1) * (N + 1);
+    auto right = 1;
+
+    for (Index i = 0; i < nrLinElements; i++) {
+        for (hsize_t iX = 0; iX <= N; iX++) {
+            for (hsize_t iY = 0; iY <= N; iY++) {
+                for (hsize_t iZ = 0; iZ <= N; iZ++) {
+                    if ((iX != N) && (iY != N) && (iZ != N)) {
+                        curvTl[elemCounter] = UnstructuredGrid::HEXAHEDRON;
+                        curvEl[elemCounter] = connCounter;
+                        auto start = startOffset + iX + (N + 1) * (iY + (N + 1) * iZ);
+                        for (auto clI: {start, start + right, start + right + back, start + back, start + up,
+                                        start + up + right, start + up + right + back, start + up + back}) {
+                            curvCl[connCounter] = clI;
+                            connCounter++;
+                        }
+
+                        elemCounter++;
+                    }
+                }
+            }
+        }
+        startOffset += (N + 1) * (N + 1) * (N + 1);
+    }
+    curvEl[elemCounter] = connCounter; // sentinel
+
+    return result;
+}
+
 std::map<std::string, Vec<Scalar, 1>::ptr> ReadHopr::extractFieldsFromStateFile(const char *filename,
                                                                                 const Byte *typeList, Index numCorners)
 {
@@ -294,7 +409,8 @@ std::map<std::string, Vec<Scalar, 1>::ptr> ReadHopr::extractFieldsFromStateFile(
     if (DGSolution.size() == 0)
         sendError("Could not read in 'DG_Solution' dataset!");
 
-    auto result = getSolutionDataAtCornerNodes(DGSolution, DGDim, N, varNames, typeList, numCorners);
+    //auto result = getSolutionDataAtCornerNodes(DGSolution, DGDim, N, varNames, typeList, numCorners);
+    auto result = getSolutionPerVariable(DGSolution, DGDim, N, varNames, typeList);
 
     H5Fclose(h5State);
     return result;
@@ -330,8 +446,11 @@ bool ReadHopr::read(Reader::Token &token, int timestep, int block)
         sendInfo("No state file was given, so no fields will be added to the mesh.");
     }
 
-    updateMeta(grid);
-    addObject(m_gridOut, grid);
+    // FIXME: get N properly...
+    auto hoGrid = createHigherOrderHexahedralGrid(grid, 4);
+
+    updateMeta(hoGrid);
+    addObject(m_gridOut, hoGrid);
 
     for (int i = 0; i < NumPorts; i++) {
         if (m_fieldChoice[i]->getValue() != Invalid) {
@@ -341,7 +460,7 @@ bool ReadHopr::read(Reader::Token &token, int timestep, int block)
             if (field) {
                 field->addAttribute("_species", varName);
                 field->setMapping(vistle::DataBase::Vertex);
-                field->setGrid(grid);
+                field->setGrid(hoGrid);
 
                 token.applyMeta(field);
                 token.addObject(m_fieldsOut[i], field);
