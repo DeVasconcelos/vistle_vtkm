@@ -1,9 +1,16 @@
 #ifndef READHOPR_H
 #define READHOPR_H
 
+#include <H5public.h>
+
 #include <vistle/module/reader.h>
 
 namespace vistle {
+
+struct StateFile {
+    hsize_t N;
+    std::map<std::string, Vec<Scalar, 1>::ptr> dataPerVariable;
+};
 
 class ReadHopr: public vistle::Reader {
 public:
@@ -32,10 +39,10 @@ private:
     // and uses the information inside to create an unstructured vistle grid.
     vistle::UnstructuredGrid::ptr createMeshFromFile(const char *filename);
 
+
     // Reads in the 'VarNames' and 'DG_Solution' datasets stored in the HOPR file
     // and uses the information inside to create a vistle field for each variable.
-    std::map<std::string, vistle::Vec<vistle::Scalar, 1>::ptr>
-    extractFieldsFromStateFile(const char *filename, const Byte *typeList, Index numCorners);
+    StateFile extractFieldsFromStateFile(const char *filename, const Byte *typeList, Index numCorners);
 };
 } // namespace vistle
 
