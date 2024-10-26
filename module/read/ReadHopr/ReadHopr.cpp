@@ -294,30 +294,30 @@ std::map<std::string, Vec<Scalar, 1>::ptr> getSolutionPerVariable(std::vector<do
 }
 
 //TODO: support other element types
-UnstructuredGrid::ptr createHigherOrderHexahedralGrid(UnstructuredGrid::ptr linGrid, hsize_t N)
+UnstructuredGrid::ptr createHigherOrderHexahedralGrid(UnstructuredGrid::ptr linearGrid, hsize_t N)
 {
-    auto nrLinElements = linGrid->getNumElements();
+    auto nrLinElements = linearGrid->getNumElements();
 
-    auto linX = linGrid->x().data();
-    auto linY = linGrid->y().data();
-    auto linZ = linGrid->z().data();
+    auto linX = linearGrid->x().data();
+    auto linY = linearGrid->y().data();
+    auto linZ = linearGrid->z().data();
 
-    auto linCl = linGrid->cl().data();
-    auto linEl = linGrid->el().data();
+    auto linCl = linearGrid->cl().data();
+    auto linEl = linearGrid->el().data();
 
     auto nrCurvElements = nrLinElements * N * N * N;
     auto nrCorners = 8;
 
-    UnstructuredGrid::ptr curvGrid(
+    UnstructuredGrid::ptr result(
         new UnstructuredGrid(nrCurvElements, nrCurvElements * nrCorners, nrLinElements * (N + 1) * (N + 1) * (N + 1)));
 
-    auto curvX = curvGrid->x().data();
-    auto curvY = curvGrid->y().data();
-    auto curvZ = curvGrid->z().data();
+    auto resultX = result->x().data();
+    auto resultY = result->y().data();
+    auto resultZ = result->z().data();
 
-    auto curvCl = curvGrid->cl().data();
-    auto curvEl = curvGrid->el().data();
-    auto curvTl = curvGrid->tl().data();
+    auto resultCl = result->cl().data();
+    auto resultEl = result->el().data();
+    auto resultTl = result->tl().data();
 
     auto back = N + 1;
     auto up = (N + 1) * (N + 1);
@@ -327,32 +327,34 @@ UnstructuredGrid::ptr createHigherOrderHexahedralGrid(UnstructuredGrid::ptr linG
     auto elemCounter = 0;
     auto connCounter = 0;
 
-    auto startOffset = 0;
     for (Index i = 0; i < nrLinElements; i++) {
-        //     - calculate hexahedral edge lengths lx, ly, lz (i.e., distances between c0-c1, c0-c3, c0-c4)
         auto elemIndex = linCl[linEl[i]];
-        auto c0 = Vector3(linX[elemIndex], linY[elemIndex], linZ[elemIndex]);
-        auto lx = (c0 - Vector3(linX[elemIndex + 1], linY[elemIndex + 1], linZ[elemIndex + 1])).norm() / N;
-        auto ly = (c0 - Vector3(linX[elemIndex + 2], linY[elemIndex + 2], linZ[elemIndex + 2])).norm() / N;
-        auto lz = (c0 - Vector3(linX[elemIndex + 4], linY[elemIndex + 4], linZ[elemIndex + 4])).norm() / N;
 
-        //     - calculate the (N+1)^3 - 1 node positions using position of c0 and the edge lengths
-        //       position i = c0 + ix * lx + iy * ly + iz * lz, where ix, iy, iz are the HO indices (used in DGsolution)
+        // calculate the edge lengths of the higher-order hexahedral elements using the linear grid
+        auto hexaOrigin = Vector3(linX[elemIndex], linY[elemIndex], linZ[elemIndex]);
+        auto lengthX = (hexaOrigin - Vector3(linX[elemIndex + 1], linY[elemIndex + 1], linZ[elemIndex + 1])).norm() / N;
+        auto lengthY = (hexaOrigin - Vector3(linX[elemIndex + 2], linY[elemIndex + 2], linZ[elemIndex + 2])).norm() / N;
+        auto lengthZ = (hexaOrigin - Vector3(linX[elemIndex + 4], linY[elemIndex + 4], linZ[elemIndex + 4])).norm() / N;
+
+        auto offset = i * (N + 1) * (N + 1) * (N + 1);
         for (hsize_t iX = 0; iX <= N; iX++) {
             for (hsize_t iY = 0; iY <= N; iY++) {
                 for (hsize_t iZ = 0; iZ <= N; iZ++) {
-                    curvX[coordCounter] = c0[0] + iX * lx;
-                    curvY[coordCounter] = c0[1] + iY * ly;
-                    curvZ[coordCounter] = c0[2] + iZ * lz;
+                    // calculate the coordinates of the higher-order hexahedral elements
+                    resultX[coordCounter] = hexaOrigin[0] + iX * lengthX;
+                    resultY[coordCounter] = hexaOrigin[1] + iY * lengthY;
+                    resultZ[coordCounter] = hexaOrigin[2] + iZ * lengthZ;
                     coordCounter++;
 
                     if ((iX != N) && (iY != N) && (iZ != N)) {
-                        curvTl[elemCounter] = UnstructuredGrid::HEXAHEDRON;
-                        curvEl[elemCounter] = connCounter;
-                        auto start = startOffset + iX + (N + 1) * (iY + (N + 1) * iZ);
-                        for (auto clI: {start, start + right, start + right + back, start + back, start + up,
-                                        start + up + right, start + up + right + back, start + up + back}) {
-                            curvCl[connCounter] = clI;
+                        resultTl[elemCounter] = UnstructuredGrid::HEXAHEDRON;
+                        resultEl[elemCounter] = connCounter;
+
+                        // add connectivity of the higher-order hexahedral elements
+                        auto origin = offset + iX + (N + 1) * (iY + (N + 1) * iZ);
+                        for (auto clI: {origin, origin + right, origin + right + back, origin + back, origin + up,
+                                        origin + up + right, origin + up + right + back, origin + up + back}) {
+                            resultCl[connCounter] = clI;
                             connCounter++;
                         }
 
@@ -361,11 +363,10 @@ UnstructuredGrid::ptr createHigherOrderHexahedralGrid(UnstructuredGrid::ptr linG
                 }
             }
         }
-        startOffset += (N + 1) * (N + 1) * (N + 1);
     }
-    curvEl[elemCounter] = connCounter; // sentinel
+    resultEl[elemCounter] = connCounter; // sentinel
 
-    return curvGrid;
+    return result;
 }
 
 StateFile ReadHopr::extractFieldsFromStateFile(const char *filename, const Byte *typeList, Index numCorners)
