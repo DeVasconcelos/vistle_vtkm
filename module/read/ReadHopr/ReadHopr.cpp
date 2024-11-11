@@ -19,11 +19,6 @@ MODULE_MAIN(ReadHopr)
 
 const std::string Invalid("(NONE)");
 
-// TODO: find out why VTK produces 8x more cells than reading in the .h5 mesh...
-//       --> that's because the solution is a polynomial of degree 4 (can be read out of state file)
-// TODO: create higher order elements! (right now we are only storing the corner nodes, i.e., pretending
-//       the state is linear)
-
 ReadHopr::ReadHopr(const std::string &name, int moduleID, mpi::communicator comm): Reader(name, moduleID, comm)
 {
     m_meshFile = addStringParameter("mesh_file", "HOPR HDF5 (.h5) file containing the mesh information", "",
