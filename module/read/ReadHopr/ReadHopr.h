@@ -30,6 +30,8 @@ private:
     vistle::StringParameter *m_meshFile;
     vistle::StringParameter *m_stateFile;
 
+    vistle::IntParameter *m_createHigherOrderNodes;
+
     vistle::StringParameter *m_fieldChoice[NumPorts];
     vistle::Port *m_fieldsOut[NumPorts];
 
@@ -40,9 +42,10 @@ private:
     vistle::UnstructuredGrid::ptr createMeshFromFile(const char *filename);
 
 
-    // Reads in the 'VarNames' and 'DG_Solution' datasets stored in the HOPR file
-    // and uses the information inside to create a vistle field for each variable.
-    StateFile extractFieldsFromStateFile(const char *filename, const Byte *typeList, Index numCorners);
+    // Reads in the 'VarNames' and 'DG_Solution' datasets stored in the HOPR file and uses
+    // the information inside to create a vistle field for each variable.
+    StateFile extractFieldsFromStateFile(const char *filename, const Byte *typeList, Index numCorners,
+                                         bool createHigherOrderNodes);
 };
 } // namespace vistle
 

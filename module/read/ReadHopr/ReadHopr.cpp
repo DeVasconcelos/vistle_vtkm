@@ -30,6 +30,12 @@ ReadHopr::ReadHopr(const std::string &name, int moduleID, mpi::communicator comm
     setParameterFilters(m_meshFile, hoprFormat);
     setParameterFilters(m_stateFile, hoprFormat);
 
+    m_createHigherOrderNodes =
+        addIntParameter("higher_order_cells",
+                        "If true,  higher order cells will be created (note that this increases the compute time and "
+                        "memory footprint). Otherwise, grid will only consist of the corner nodes.",
+                        true, Parameter::Boolean);
+
     m_gridOut = createOutputPort("grid_out", "grid");
 
     for (int i = 0; i < NumPorts; i++) {
@@ -263,10 +269,10 @@ getSolutionDataAtCornerNodes(std::vector<double> DGSolution, std::vector<hsize_t
     return result;
 }
 
-std::map<std::string, Vec<Scalar, 1>::ptr> getSolutionPerVariable(std::vector<double> DGSolution,
-                                                                  std::vector<hsize_t> DGDim, hsize_t polynomialDegree,
-                                                                  const std::vector<std::string> &varNames,
-                                                                  const Byte *typeList)
+std::map<std::string, Vec<Scalar, 1>::ptr> getSolutionData(std::vector<double> DGSolution, std::vector<hsize_t> DGDim,
+                                                           hsize_t polynomialDegree,
+                                                           const std::vector<std::string> &varNames,
+                                                           const Byte *typeList)
 {
     std::map<std::string, Vec<Scalar, 1>::ptr> result;
     for (hsize_t varI = 0; varI < DGDim[4]; varI++) {
@@ -364,7 +370,8 @@ UnstructuredGrid::ptr createHigherOrderHexahedralGrid(UnstructuredGrid::ptr line
     return result;
 }
 
-StateFile ReadHopr::extractFieldsFromStateFile(const char *filename, const Byte *typeList, Index numCorners)
+StateFile ReadHopr::extractFieldsFromStateFile(const char *filename, const Byte *typeList, Index numCorners,
+                                               bool createHigherOrderNodes)
 {
     auto h5State = H5Fopen(m_stateFile->getValue().c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
     if (h5State < 0) {
@@ -389,8 +396,10 @@ StateFile ReadHopr::extractFieldsFromStateFile(const char *filename, const Byte 
     if (DGSolution.size() == 0)
         sendError("Could not read in 'DG_Solution' dataset!");
 
-    //auto result = getSolutionDataAtCornerNodes(DGSolution, DGDim, N, varNames, typeList, numCorners);
-    auto result = getSolutionPerVariable(DGSolution, DGDim, N, varNames, typeList);
+
+    auto result = createHigherOrderNodes
+                      ? getSolutionData(DGSolution, DGDim, N, varNames, typeList)
+                      : getSolutionDataAtCornerNodes(DGSolution, DGDim, N, varNames, typeList, numCorners);
 
     H5Fclose(h5State);
     return {N, result};
@@ -420,10 +429,11 @@ bool ReadHopr::read(Reader::Token &token, int timestep, int block)
     }
 
     auto stateFileName = m_stateFile->getValue();
+    auto createHigherOrderNodes = m_createHigherOrderNodes->getValue();
     if (stateFileName.size()) {
         LOCK_HDF5(comm());
-        auto stateFileData =
-            extractFieldsFromStateFile(stateFileName.c_str(), grid->tl().data(), grid->getNumCorners());
+        auto stateFileData = extractFieldsFromStateFile(stateFileName.c_str(), grid->tl().data(), grid->getNumCorners(),
+                                                        createHigherOrderNodes);
         polynomialDegree = stateFileData.N;
         variables = stateFileData.dataPerVariable;
         UNLOCK_HDF5(comm());
@@ -431,10 +441,12 @@ bool ReadHopr::read(Reader::Token &token, int timestep, int block)
         sendInfo("No state file was given, so no fields will be added to the mesh.");
     }
 
-    auto hoGrid = createHigherOrderHexahedralGrid(grid, polynomialDegree);
 
-    updateMeta(hoGrid);
-    addObject(m_gridOut, hoGrid);
+    if (createHigherOrderNodes)
+        grid = createHigherOrderHexahedralGrid(grid, polynomialDegree);
+
+    updateMeta(grid);
+    addObject(m_gridOut, grid);
 
     for (int i = 0; i < NumPorts; i++) {
         if (m_fieldChoice[i]->getValue() != Invalid) {
@@ -444,7 +456,7 @@ bool ReadHopr::read(Reader::Token &token, int timestep, int block)
             if (field) {
                 field->addAttribute("_species", varName);
                 field->setMapping(vistle::DataBase::Vertex);
-                field->setGrid(hoGrid);
+                field->setGrid(grid);
 
                 token.applyMeta(field);
                 token.addObject(m_fieldsOut[i], field);
