@@ -108,7 +108,7 @@ void shm_array<T, allocator>::setHandle(const ArrayHandle &h)
     }
     m_capacity = m_size;
 
-    vtkm::cont::ArrayHandle<vtkm::Range> rangeArray = vtkm::cont::ArrayRangeCompute(h);
+    vtkm::cont::ArrayHandle<vtkm::Range> rangeArray = vtkm::cont::ArrayRangeCompute(m_handle);
     auto rangePortal = rangeArray.ReadPortal();
     assert(rangePortal.GetNumberOfValues() == 1); // 1 component
     vtkm::Range componentRange = rangePortal.Get(0);
