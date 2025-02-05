@@ -1,9 +1,8 @@
 #ifndef VISTLE_VTKM_CLIP_H
 #define VISTLE_VTKM_CLIP_H
 
-#include <vistle/vtkm/ImplFuncController.h>
 #include <vistle/module/module.h>
-
+#include <vistle/vtkm/ImplFuncController.h>
 
 class ClipVtkm: public vistle::Module {
 public:
